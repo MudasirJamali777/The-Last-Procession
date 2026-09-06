@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="The Last Procession/The Last Procession.vcxproj" />
+  <Project Path="The Last Procession/The Last Procession.vcxproj" Id="37668e98-6672-46bb-b116-8db7db7e8b73" />
 </Solution>
