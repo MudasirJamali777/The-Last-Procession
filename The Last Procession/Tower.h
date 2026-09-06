@@ -3,13 +3,15 @@
 
 enum class TowerType {
     WatchbowNest,
-    CenserShrine
+    CenserShrine,
+    ReliquarySpire
 };
 
 struct Tower {
     TowerType type = TowerType::WatchbowNest;
     int gridX = 0;
     int gridY = 0;
+    int level = 1;
     Vector3 pos = { 0.0f, 0.8f, 0.0f };
     float range = 5.4f;
     float cooldown = 0.0f;

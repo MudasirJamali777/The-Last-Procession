@@ -13,6 +13,7 @@ struct Enemy {
     int maxHp = 28;
     float speed = 2.0f;
     float hitFlash = 0.0f;
+    float slowTimer = 0.0f;
     int laneIndex = 0;
     int pathIndex = 0;
     float attackTimer = 0.0f;

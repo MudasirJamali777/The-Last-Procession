@@ -12,12 +12,14 @@ enum class TileKind {
     Road,
     Buildable,
     Fortress,
-    Spawn
+    Spawn,
+    Blocked
 };
 
 struct GridTile {
     TileKind kind = TileKind::Empty;
     bool occupied = false;
+    float height = 0.12f;
 };
 
 struct GridMap {
