@@ -6,13 +6,24 @@
 Game::Game() {
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(screenW, screenH, "THE LAST PROCESSION");
+
+    int monitor = GetCurrentMonitor();
+    int monitorW = GetMonitorWidth(monitor);
+    int monitorH = GetMonitorHeight(monitor);
+    screenW = (int)(monitorW * 0.82f);
+    screenH = (int)(monitorH * 0.82f);
+    if (screenW < 1280) screenW = 1280;
+    if (screenH < 720) screenH = 720;
+    SetWindowSize(screenW, screenH);
+    SetWindowPosition((monitorW - screenW) / 2, (monitorH - screenH) / 2);
+
     SetTargetFPS(60);
 
-    camera.position = { 24.0f, 24.0f, 24.0f };
-    camera.target = { 0.0f, 0.0f, 0.0f };
+    camera.position = { 40.0f, 34.0f, 40.0f };
+    camera.target = { 0.0f, 0.45f, 0.0f };
     camera.up = { 0.0f, 1.0f, 0.0f };
-    camera.fovy = cameraZoom;
-    camera.projection = CAMERA_ORTHOGRAPHIC;
+    camera.fovy = 36.0f;
+    camera.projection = CAMERA_PERSPECTIVE;
 
     ResetRun();
 }
@@ -37,9 +48,9 @@ void Game::Run() {
 }
 
 void Game::ResetRun() {
-    gold = 120;
-    iron = 80;
-    ember = 24;
+    gold = 140;
+    iron = 95;
+    ember = 28;
     fervor = 0;
     hymnTimer = 0.0f;
     worldTime = 0.0f;
@@ -50,12 +61,12 @@ void Game::ResetRun() {
     fortress = Fortress{};
     state = PlayState::BuildPhase;
     buildChoice = BuildChoice::WatchbowNest;
-    announcement = "VISUAL OVERHAUL // 1 BOW  2 CENSER  3 SPIRE  4 BARRICADE";
+    announcement = "MEGA PROCESSION MAP // 3 ROADS  HUGE FORTRESS  WIDE SIEGE FIELD";
     announcementTimer = 4.8f;
     hoveredValid = false;
     hoveredCell = { -1, -1 };
     hoveredTowerIndex = -1;
-    cameraZoom = 16.0f;
+    cameraZoom = 40.0f;
     BuildMap();
     BuildWave(1);
 }
@@ -73,10 +84,10 @@ void Game::AddProp(PropType type, int x, int y, bool blockCell) {
 }
 
 void Game::BuildMap() {
-    grid.width = 18;
-    grid.height = 16;
+    grid.width = 44;
+    grid.height = 34;
     grid.cellSize = 2.4f;
-    grid.origin = { -21.6f, 0.0f, -19.2f };
+    grid.origin = { -52.8f, 0.0f, -40.8f };
     grid.tiles.assign((size_t)grid.width * (size_t)grid.height, GridTile{});
     props.clear();
 
@@ -85,38 +96,52 @@ void Game::BuildMap() {
             GridTile& tile = grid.At(x, y);
             tile.kind = TileKind::Buildable;
             tile.occupied = false;
-            float ridgeX = std::fabs((float)x - (float)grid.width * 0.5f) * 0.014f;
-            float ridgeY = std::fabs((float)y - (float)grid.height * 0.5f) * 0.010f;
-            tile.height = 0.18f + 0.03f * (float)((x + y) % 3) + ridgeX + ridgeY;
+            float ridgeX = std::fabs((float)x - (float)grid.width * 0.5f) * 0.006f;
+            float ridgeY = std::fabs((float)y - (float)grid.height * 0.5f) * 0.005f;
+            float variation = 0.02f * (float)((x * 3 + y * 5) % 4);
+            tile.height = 0.16f + ridgeX + ridgeY + variation;
         }
     }
 
     lanes.clear();
-    lanes.resize(2);
+    lanes.resize(3);
 
     auto addSegment = [&](std::vector<GridCoord>& lane, int x0, int y0, int x1, int y1) {
-        int dx = (x1 > x0) ? 1 : ((x1 < x0) ? -1 : 0);
-        int dy = (y1 > y0) ? 1 : ((y1 < y0) ? -1 : 0);
-        int x = x0;
-        int y = y0;
+        int steps = std::max(std::abs(x1 - x0), std::abs(y1 - y0));
+        if (steps <= 0) {
+            if (lane.empty() || lane.back().x != x0 || lane.back().y != y0) {
+                lane.push_back({ x0, y0 });
+            }
+            return;
+        }
 
-        if (lane.empty() || lane.back().x != x || lane.back().y != y) lane.push_back({ x, y });
-        while (x != x1 || y != y1) {
-            x += dx;
-            y += dy;
-            lane.push_back({ x, y });
+        for (int i = 0; i <= steps; ++i) {
+            float t = (float)i / (float)steps;
+            int x = (int)std::round((float)x0 + (float)(x1 - x0) * t);
+            int y = (int)std::round((float)y0 + (float)(y1 - y0) * t);
+            if (lane.empty() || lane.back().x != x || lane.back().y != y) {
+                lane.push_back({ x, y });
+            }
         }
         };
 
-    addSegment(lanes[0], 0, 3, 5, 3);
-    addSegment(lanes[0], 5, 3, 7, 4);
-    addSegment(lanes[0], 7, 4, 9, 5);
-    addSegment(lanes[0], 9, 5, 10, 5);
+    addSegment(lanes[0], 0, 5, 10, 5);
+    addSegment(lanes[0], 10, 5, 16, 6);
+    addSegment(lanes[0], 16, 6, 21, 8);
+    addSegment(lanes[0], 21, 8, 26, 11);
+    addSegment(lanes[0], 26, 11, 28, 16);
 
-    addSegment(lanes[1], 0, 12, 5, 12);
-    addSegment(lanes[1], 5, 12, 7, 10);
-    addSegment(lanes[1], 7, 10, 9, 7);
-    addSegment(lanes[1], 9, 7, 10, 5);
+    addSegment(lanes[1], 0, 16, 10, 16);
+    addSegment(lanes[1], 10, 16, 16, 16);
+    addSegment(lanes[1], 16, 16, 22, 16);
+    addSegment(lanes[1], 22, 16, 26, 16);
+    addSegment(lanes[1], 26, 16, 28, 16);
+
+    addSegment(lanes[2], 0, 28, 10, 28);
+    addSegment(lanes[2], 10, 28, 16, 25);
+    addSegment(lanes[2], 16, 25, 21, 22);
+    addSegment(lanes[2], 21, 22, 26, 19);
+    addSegment(lanes[2], 26, 19, 28, 16);
 
     for (const std::vector<GridCoord>& lane : lanes) {
         for (int i = 0; i < (int)lane.size(); ++i) {
@@ -129,79 +154,60 @@ void Game::BuildMap() {
         }
     }
 
-    fortress.gateCell = { 10, 5 };
-    fortress.coreCell = { 12, 5 };
+    fortress.gateCell = { 28, 16 };
+    fortress.coreCell = { 35, 16 };
 
-    const GridCoord fortressCells[] = {
-        { 11, 4 }, { 12, 4 }, { 13, 4 },
-        { 11, 5 }, { 12, 5 }, { 13, 5 },
-        { 11, 6 }, { 12, 6 }, { 13, 6 }
-    };
-    for (const GridCoord& c : fortressCells) {
-        if (!grid.InBounds(c.x, c.y)) continue;
-        GridTile& tile = grid.At(c.x, c.y);
-        tile.kind = TileKind::Fortress;
-        tile.occupied = true;
-        tile.height = 0.12f;
+    for (int y = 11; y <= 21; ++y) {
+        for (int x = 31; x <= 40; ++x) {
+            GridTile& tile = grid.At(x, y);
+            tile.kind = TileKind::Fortress;
+            tile.occupied = true;
+            tile.height = 0.12f;
+        }
     }
 
-    GridTile& gateTile = grid.At(fortress.gateCell.x, fortress.gateCell.y);
-    gateTile.kind = TileKind::Road;
-    gateTile.occupied = false;
-    gateTile.height = 0.06f;
-
-    const GridCoord blockedCells[] = {
-        { 2, 1 }, { 3, 1 }, { 4, 1 }, { 7, 1 }, { 8, 2 }, { 14, 2 }, { 15, 3 },
-        { 2, 5 }, { 4, 6 }, { 6, 7 }, { 7, 8 }, { 15, 6 }, { 16, 8 },
-        { 2, 14 }, { 4, 14 }, { 6, 13 }, { 7, 12 }, { 15, 11 }, { 16, 12 },
-        { 8, 11 }, { 13, 10 }, { 14, 9 }
+    const GridCoord courtRoad[] = {
+        { 28, 16 }, { 29, 16 }, { 30, 16 }, { 31, 16 }, { 32, 16 }, { 33, 16 },
+        { 31, 15 }, { 31, 17 }, { 32, 15 }, { 32, 17 }, { 33, 15 }, { 33, 17 }
     };
-    for (const GridCoord& c : blockedCells) {
-        if (!grid.InBounds(c.x, c.y)) continue;
+    for (const GridCoord& c : courtRoad) {
         GridTile& tile = grid.At(c.x, c.y);
+        tile.kind = TileKind::Road;
+        tile.occupied = false;
+        tile.height = 0.05f;
+    }
+
+    auto blockBuildable = [&](int x, int y) {
+        if (!grid.InBounds(x, y)) return;
+        GridTile& tile = grid.At(x, y);
         if (tile.kind == TileKind::Buildable) {
             tile.kind = TileKind::Blocked;
             tile.occupied = true;
             tile.height = 0.42f;
         }
-    }
+        };
 
-    AddProp(PropType::DeadTree, 2, 1, true);
-    AddProp(PropType::DeadTree, 7, 1, true);
-    AddProp(PropType::DeadTree, 15, 11, true);
-    AddProp(PropType::DeadTree, 6, 7, true);
-    AddProp(PropType::DeadTree, 14, 2, true);
+    for (int x = 2; x <= 18; x += 4) blockBuildable(x, 2 + (x % 3));
+    for (int x = 4; x <= 22; x += 5) blockBuildable(x, 10 + (x % 4));
+    for (int x = 6; x <= 24; x += 4) blockBuildable(x, 30 - (x % 5));
+    for (int y = 4; y <= 28; y += 4) blockBuildable(38, y);
+    for (int y = 6; y <= 26; y += 5) blockBuildable(41, y);
+    blockBuildable(27, 10); blockBuildable(27, 22); blockBuildable(30, 9); blockBuildable(30, 23);
 
-    AddProp(PropType::GraveMarker, 4, 14, true);
-    AddProp(PropType::GraveMarker, 2, 14, true);
-    AddProp(PropType::GraveMarker, 15, 6, true);
-    AddProp(PropType::GraveMarker, 16, 8, true);
-    AddProp(PropType::GraveMarker, 16, 12, true);
+    int deadTrees[][2] = { {2,3},{6,2},{10,3},{14,2},{18,3},{8,12},{16,10},{12,29},{20,27},{38,8},{41,11},{38,24} };
+    for (auto& p : deadTrees) AddProp(PropType::DeadTree, p[0], p[1], true);
+    int graves[][2] = { {5,31},{9,31},{13,31},{38,5},{41,6},{38,28},{41,27},{39,16} };
+    for (auto& p : graves) AddProp(PropType::GraveMarker, p[0], p[1], true);
+    int rubble[][2] = { {4,11},{9,13},{15,12},{18,28},{27,10},{27,22},{30,9},{30,23} };
+    for (auto& p : rubble) AddProp(PropType::RubblePile, p[0], p[1], true);
+    int carts[][2] = { {29,11},{29,21},{41,14},{41,18} };
+    for (auto& p : carts) AddProp(PropType::CartWreck, p[0], p[1], true);
+    int braziers[][2] = { {31,12},{31,20},{34,11},{34,21},{40,12},{40,20},{29,14},{29,18} };
+    for (auto& p : braziers) AddProp(PropType::Brazier, p[0], p[1], false);
+    int banners[][2] = { {32,11},{37,11},{32,21},{37,21},{40,14},{40,18} };
+    for (auto& p : banners) AddProp(PropType::BannerPole, p[0], p[1], false);
 
-    AddProp(PropType::RubblePile, 3, 1, true);
-    AddProp(PropType::RubblePile, 8, 11, true);
-    AddProp(PropType::RubblePile, 13, 10, true);
-    AddProp(PropType::RubblePile, 4, 6, true);
-
-    AddProp(PropType::CartWreck, 7, 12, true);
-    AddProp(PropType::CartWreck, 14, 9, true);
-    AddProp(PropType::CartWreck, 8, 2, true);
-
-    AddProp(PropType::Brazier, 10, 4, false);
-    AddProp(PropType::Brazier, 10, 6, false);
-    AddProp(PropType::Brazier, 14, 4, false);
-    AddProp(PropType::Brazier, 14, 6, false);
-    AddProp(PropType::Brazier, 9, 3, false);
-    AddProp(PropType::Brazier, 9, 8, false);
-
-    AddProp(PropType::BannerPole, 11, 3, false);
-    AddProp(PropType::BannerPole, 13, 3, false);
-    AddProp(PropType::BannerPole, 11, 7, false);
-    AddProp(PropType::BannerPole, 13, 7, false);
-    AddProp(PropType::BannerPole, 15, 4, false);
-    AddProp(PropType::BannerPole, 15, 6, false);
-
-    cameraFocus = grid.CellCenter(9, 7);
+    cameraFocus = grid.CellCenter(21, 16);
 }
 
 void Game::BuildWave(int waveNumber) {
@@ -209,39 +215,42 @@ void Game::BuildWave(int waveNumber) {
     wave.number = waveNumber;
     wave.active = false;
 
-    int count = 8 + (waveNumber - 1) * 2;
+    int laneCount = (int)lanes.size();
+    if (laneCount <= 0) laneCount = 1;
+
+    int count = 15 + (waveNumber - 1) * 3;
     bool bossWave = (waveNumber % 5 == 0);
 
     for (int i = 0; i < count; ++i) {
         SpawnEntry entry{};
-        entry.spawnTime = 0.68f * i;
-        entry.laneIndex = i % 2;
+        entry.spawnTime = 0.56f * i;
+        entry.laneIndex = i % laneCount;
         entry.type = EnemyType::AshRaider;
 
         if (waveNumber >= 2 && (i % 4 == 3)) {
             entry.type = EnemyType::GraveBrute;
-            entry.spawnTime += 0.18f;
+            entry.spawnTime += 0.10f;
         }
-        if (waveNumber >= 3 && (i % 6 == 2)) {
+        if (waveNumber >= 3 && (i % 5 == 2)) {
             entry.type = EnemyType::BannerKnight;
         }
         if (waveNumber >= 6 && (i % 3 == 0)) {
-            entry.spawnTime -= 0.07f;
+            entry.spawnTime -= 0.05f;
         }
         wave.spawns.push_back(entry);
     }
 
     if (bossWave) {
         SpawnEntry bossA{};
-        bossA.spawnTime = 0.68f * count + 1.6f;
-        bossA.laneIndex = 0;
+        bossA.spawnTime = 0.56f * count + 1.2f;
+        bossA.laneIndex = laneCount > 1 ? 1 : 0;
         bossA.type = EnemyType::ProcessionBreaker;
         wave.spawns.push_back(bossA);
 
-        if (waveNumber >= 10) {
+        if (waveNumber >= 10 && laneCount >= 3) {
             SpawnEntry bossB{};
-            bossB.spawnTime = bossA.spawnTime + 2.2f;
-            bossB.laneIndex = 1;
+            bossB.spawnTime = bossA.spawnTime + 2.0f;
+            bossB.laneIndex = 2;
             bossB.type = EnemyType::ProcessionBreaker;
             wave.spawns.push_back(bossB);
         }
@@ -256,8 +265,8 @@ void Game::StartWave() {
     wave.nextSpawnIndex = 0;
     state = PlayState::BattlePhase;
     announcement = (wave.number % 5 == 0)
-        ? TextFormat("WAVE %d // PROCESSION BREAKER COMES", wave.number)
-        : TextFormat("WAVE %d // HOLD THE HOLY ROAD", wave.number);
+        ? TextFormat("WAVE %d // BREAKER MARCH", wave.number)
+        : TextFormat("WAVE %d // THREE ROADS BURN", wave.number);
     announcementTimer = 2.6f;
 }
 
@@ -339,25 +348,25 @@ void Game::Update(float dt) {
 }
 
 void Game::UpdateCamera(float dt) {
-    float move = 13.0f * dt;
+    float move = 26.0f * dt;
     if (IsKeyDown(KEY_A)) cameraFocus.x -= move;
     if (IsKeyDown(KEY_D)) cameraFocus.x += move;
     if (IsKeyDown(KEY_W)) cameraFocus.z -= move;
     if (IsKeyDown(KEY_S)) cameraFocus.z += move;
 
-    cameraZoom -= GetMouseWheelMove() * 0.85f;
+    cameraZoom -= GetMouseWheelMove() * 2.2f;
     cameraZoom = ClampFloat(cameraZoom, cameraMinZoom, cameraMaxZoom);
 
-    float minX = grid.origin.x + 10.0f;
-    float maxX = grid.origin.x + grid.width * grid.cellSize - 10.0f;
-    float minZ = grid.origin.z + 8.0f;
-    float maxZ = grid.origin.z + grid.height * grid.cellSize - 8.0f;
+    float minX = grid.origin.x + 22.0f;
+    float maxX = grid.origin.x + grid.width * grid.cellSize - 22.0f;
+    float minZ = grid.origin.z + 20.0f;
+    float maxZ = grid.origin.z + grid.height * grid.cellSize - 20.0f;
     cameraFocus.x = ClampFloat(cameraFocus.x, minX, maxX);
     cameraFocus.z = ClampFloat(cameraFocus.z, minZ, maxZ);
 
-    camera.target = { cameraFocus.x, 1.2f, cameraFocus.z };
-    camera.position = { cameraFocus.x + 20.0f, 22.0f, cameraFocus.z + 20.0f };
-    camera.fovy = cameraZoom;
+    camera.target = { cameraFocus.x, 0.45f, cameraFocus.z };
+    camera.position = { cameraFocus.x + cameraZoom, cameraZoom * 0.86f, cameraFocus.z + cameraZoom };
+    camera.fovy = 36.0f;
 }
 
 void Game::UpdateHoverCell() {
@@ -956,8 +965,8 @@ void Game::Draw() const {
 void Game::DrawWorld() const {
     BeginMode3D(camera);
 
-    DrawPlane({ 0.0f, -0.08f, 0.0f }, { 160.0f, 160.0f }, { 24, 28, 34, 255 });
-    DrawPlane({ 0.0f, -0.04f, 0.0f }, { 120.0f, 120.0f }, { 34, 40, 32, 255 });
+    DrawPlane({ 0.0f, -0.08f, 0.0f }, { 240.0f, 240.0f }, { 24, 28, 34, 255 });
+    DrawPlane({ 0.0f, -0.04f, 0.0f }, { 190.0f, 190.0f }, { 34, 40, 32, 255 });
 
     DrawTiles();
     DrawEnvironment();
@@ -1088,51 +1097,60 @@ void Game::DrawEnvironment() const {
 }
 
 void Game::DrawFortress() const {
-    Vector3 core = grid.CellCenter(fortress.coreCell.x, fortress.coreCell.y);
-    core.y = 1.9f;
-
-    DrawCube({ core.x - 1.2f, 0.55f, core.z }, 8.8f, 1.1f, 9.4f, { 74, 80, 90, 255 });
-    DrawCube(core, 7.2f, 3.8f, 7.0f, { 146, 150, 158, 255 });
-    DrawCubeWires(core, 7.2f, 3.8f, 7.0f, { 60, 64, 74, 255 });
-
-    DrawCube({ core.x - 2.7f, 3.2f, core.z - 2.3f }, 1.3f, 6.2f, 1.3f, { 176, 178, 184, 255 });
-    DrawCube({ core.x + 0.2f, 3.2f, core.z - 2.3f }, 1.3f, 6.2f, 1.3f, { 176, 178, 184, 255 });
-    DrawCube({ core.x - 2.7f, 3.2f, core.z + 2.3f }, 1.3f, 6.2f, 1.3f, { 176, 178, 184, 255 });
-    DrawCube({ core.x + 0.2f, 3.2f, core.z + 2.3f }, 1.3f, 6.2f, 1.3f, { 176, 178, 184, 255 });
-
-    DrawCube({ core.x - 1.2f, 2.3f, core.z - 3.8f }, 6.6f, 1.4f, 0.7f, { 128, 134, 144, 255 });
-    DrawCube({ core.x - 1.2f, 2.3f, core.z + 3.8f }, 6.6f, 1.4f, 0.7f, { 128, 134, 144, 255 });
-    DrawCube({ core.x - 4.4f, 2.3f, core.z }, 0.7f, 1.4f, 7.0f, { 128, 134, 144, 255 });
-    DrawCube({ core.x + 2.0f, 2.3f, core.z }, 0.7f, 1.4f, 7.0f, { 128, 134, 144, 255 });
-
     Vector3 gate = grid.CellCenter(fortress.gateCell.x, fortress.gateCell.y);
-    gate.y = 1.1f;
+    Vector3 core = grid.CellCenter(fortress.coreCell.x, fortress.coreCell.y);
+    Vector3 mid = { (gate.x + core.x) * 0.5f + 1.6f, 0.0f, core.z };
+
+    DrawCube({ mid.x, 0.75f, mid.z }, 24.0f, 1.5f, 16.0f, { 70, 76, 84, 255 });
+    DrawCube({ mid.x + 1.8f, 2.9f, mid.z }, 16.0f, 5.8f, 12.6f, { 144, 148, 156, 255 });
+    DrawCubeWires({ mid.x + 1.8f, 2.9f, mid.z }, 16.0f, 5.8f, 12.6f, { 60, 64, 72, 255 });
+
+    DrawCube({ mid.x - 6.2f, 3.0f, mid.z }, 0.9f, 2.4f, 11.0f, { 118, 124, 134, 255 });
+    DrawCube({ mid.x + 5.8f, 3.0f, mid.z }, 0.9f, 2.4f, 11.0f, { 118, 124, 134, 255 });
+    DrawCube({ mid.x, 3.0f, mid.z - 5.8f }, 15.2f, 2.4f, 0.9f, { 118, 124, 134, 255 });
+    DrawCube({ mid.x, 3.0f, mid.z + 5.8f }, 15.2f, 2.4f, 0.9f, { 118, 124, 134, 255 });
+
+    DrawCube({ core.x - 0.8f, 4.6f, core.z - 4.5f }, 1.7f, 8.6f, 1.7f, { 176, 178, 184, 255 });
+    DrawCube({ core.x + 4.8f, 4.6f, core.z - 4.5f }, 1.7f, 8.6f, 1.7f, { 176, 178, 184, 255 });
+    DrawCube({ core.x - 0.8f, 4.6f, core.z + 4.5f }, 1.7f, 8.6f, 1.7f, { 176, 178, 184, 255 });
+    DrawCube({ core.x + 4.8f, 4.6f, core.z + 4.5f }, 1.7f, 8.6f, 1.7f, { 176, 178, 184, 255 });
+    DrawCube({ core.x + 2.0f, 6.0f, core.z }, 5.4f, 2.2f, 5.2f, { 162, 166, 174, 255 });
+
     float gateRatio = (float)fortress.gateHp / (float)fortress.gateMaxHp;
     if (gateRatio < 0.0f) gateRatio = 0.0f;
-    Color gateColor = fortress.gateHp > 0 ? Color{ (unsigned char)(122 + 58 * gateRatio), (unsigned char)(90 + 42 * gateRatio), 68, 255 } : Color{ 72, 54, 44, 255 };
-    DrawCube({ gate.x + 1.15f, 1.20f, gate.z }, 1.5f, 2.4f, 4.4f, gateColor);
-    DrawCubeWires({ gate.x + 1.15f, 1.20f, gate.z }, 1.5f, 2.4f, 4.4f, { 42, 30, 22, 255 });
-    DrawCube({ gate.x + 2.05f, 2.1f, gate.z - 2.0f }, 0.62f, 4.2f, 0.62f, { 138, 144, 152, 255 });
-    DrawCube({ gate.x + 2.05f, 2.1f, gate.z + 2.0f }, 0.62f, 4.2f, 0.62f, { 138, 144, 152, 255 });
+    Color gateColor = fortress.gateHp > 0 ? Color{ (unsigned char)(124 + 56 * gateRatio), (unsigned char)(92 + 40 * gateRatio), 70, 255 } : Color{ 72, 54, 44, 255 };
+    DrawCube({ gate.x + 1.8f, 1.6f, gate.z }, 2.2f, 3.2f, 5.4f, gateColor);
+    DrawCubeWires({ gate.x + 1.8f, 1.6f, gate.z }, 2.2f, 3.2f, 5.4f, { 42, 30, 22, 255 });
+    DrawCube({ gate.x + 3.2f, 2.8f, gate.z - 2.6f }, 0.9f, 5.8f, 0.9f, { 138, 144, 152, 255 });
+    DrawCube({ gate.x + 3.2f, 2.8f, gate.z + 2.6f }, 0.9f, 5.8f, 0.9f, { 138, 144, 152, 255 });
+    DrawCube({ gate.x + 4.0f, 4.2f, gate.z }, 2.8f, 2.4f, 6.8f, { 132, 138, 148, 255 });
 
-    Vector3 wagonA = { core.x + 0.4f, 0.95f, core.z - 5.1f };
-    Vector3 wagonB = { core.x + 0.4f, 0.95f, core.z + 5.1f };
-    DrawCube(wagonA, 2.6f, 1.3f, 1.8f, { 110, 84, 58, 255 });
-    DrawCube(wagonB, 2.6f, 1.3f, 1.8f, { 110, 84, 58, 255 });
-    DrawCube({ wagonA.x, 2.0f, wagonA.z }, 1.6f, 0.9f, 1.2f, { 144, 124, 94, 255 });
-    DrawCube({ wagonB.x, 2.0f, wagonB.z }, 1.6f, 0.9f, 1.2f, { 144, 124, 94, 255 });
+    Vector3 wagonA = { core.x + 5.8f, 1.1f, core.z - 8.0f };
+    Vector3 wagonB = { core.x + 5.8f, 1.1f, core.z + 8.0f };
+    Vector3 wagonC = { core.x - 5.6f, 1.1f, core.z };
+    DrawCube(wagonA, 3.6f, 1.6f, 2.4f, { 110, 84, 58, 255 });
+    DrawCube(wagonB, 3.6f, 1.6f, 2.4f, { 110, 84, 58, 255 });
+    DrawCube(wagonC, 3.2f, 1.6f, 3.4f, { 110, 84, 58, 255 });
+    DrawCube({ wagonA.x, 2.5f, wagonA.z }, 2.2f, 1.2f, 1.6f, { 144, 124, 94, 255 });
+    DrawCube({ wagonB.x, 2.5f, wagonB.z }, 2.2f, 1.2f, 1.6f, { 144, 124, 94, 255 });
+    DrawCube({ wagonC.x, 2.5f, wagonC.z }, 1.8f, 1.2f, 2.2f, { 144, 124, 94, 255 });
 
-    float wheelOffsets[2] = { -0.92f, 0.92f };
-    for (float oz : wheelOffsets) {
-        DrawCylinder({ wagonA.x - 0.9f, 0.36f, wagonA.z + oz }, 0.34f, 0.34f, 0.10f, 10, { 78, 60, 44, 255 });
-        DrawCylinder({ wagonA.x + 0.9f, 0.36f, wagonA.z + oz }, 0.34f, 0.34f, 0.10f, 10, { 78, 60, 44, 255 });
-        DrawCylinder({ wagonB.x - 0.9f, 0.36f, wagonB.z + oz }, 0.34f, 0.34f, 0.10f, 10, { 78, 60, 44, 255 });
-        DrawCylinder({ wagonB.x + 0.9f, 0.36f, wagonB.z + oz }, 0.34f, 0.34f, 0.10f, 10, { 78, 60, 44, 255 });
+    float wheelOffsetsA[2] = { -1.20f, 1.20f };
+    for (float oz : wheelOffsetsA) {
+        DrawCylinder({ wagonA.x - 1.2f, 0.38f, wagonA.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonA.x + 1.2f, 0.38f, wagonA.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonB.x - 1.2f, 0.38f, wagonB.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonB.x + 1.2f, 0.38f, wagonB.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
+    }
+    float wheelOffsetsC[2] = { -1.05f, 1.05f };
+    for (float ox : wheelOffsetsC) {
+        DrawCylinder({ wagonC.x + ox, 0.38f, wagonC.z - 1.12f }, 0.40f, 0.40f, 0.12f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonC.x + ox, 0.38f, wagonC.z + 1.12f }, 0.40f, 0.40f, 0.12f, 10, { 78, 60, 44, 255 });
     }
 
-    float glowPulse = 0.08f * std::sin(worldTime * 3.0f) + (hymnTimer > 0.0f ? 0.12f : 0.0f);
-    DrawSphere({ core.x - 1.2f, 4.4f + glowPulse, core.z }, 0.62f + glowPulse, { 236, 202, 116, 255 });
-    DrawSphere({ core.x - 1.2f, 4.4f + glowPulse * 1.5f, core.z }, 0.32f + glowPulse * 0.7f, { 255, 240, 178, 255 });
+    float glowPulse = 0.08f * std::sin(worldTime * 3.0f) + (hymnTimer > 0.0f ? 0.14f : 0.0f);
+    DrawSphere({ core.x + 2.0f, 7.1f + glowPulse, core.z }, 0.92f + glowPulse, { 236, 202, 116, 255 });
+    DrawSphere({ core.x + 2.0f, 7.1f + glowPulse * 1.4f, core.z }, 0.46f + glowPulse * 0.7f, { 255, 240, 178, 255 });
 }
 
 void Game::DrawTowers() const {
@@ -1236,22 +1254,22 @@ void Game::DrawUi() const {
     DrawRectangle(22, 18, 760, 170, Fade(BLACK, 0.68f));
     DrawRectangleLines(22, 18, 760, 170, { 188, 156, 96, 255 });
     DrawText("THE LAST PROCESSION", 40, 30, 34, { 236, 228, 210, 255 });
-    DrawText("VISUAL OVERHAUL BUILD", 40, 68, 20, { 196, 172, 118, 255 });
+    DrawText("MEGA PROCESSION MAP", 40, 68, 20, { 196, 172, 118, 255 });
     DrawText(TextFormat("WAVE %d", wave.number), 40, 96, 24, { 188, 156, 96, 255 });
     DrawText(TextFormat("GOLD %d   IRON %d   EMBER %d", gold, iron, ember), 150, 96, 22, { 210, 214, 204, 255 });
     DrawText(TextFormat("GATE %d / %d", fortress.gateHp, fortress.gateMaxHp), 40, 126, 22, fortress.gateHp > 0 ? Color{ 210, 176, 112, 255 } : Color{ 198, 76, 76, 255 });
     DrawText(TextFormat("HOLY CORE %d / %d", fortress.coreHp, fortress.coreMaxHp), 240, 126, 22, fortress.coreHp > 30 ? Color{ 128, 196, 136, 255 } : Color{ 198, 76, 76, 255 });
-    DrawText(TextFormat("FERVOR %d / %d", fervor, fervorMax), 500, 96, 22, hymnTimer > 0.0f ? Color{ 250, 228, 164, 255 } : Color{ 168, 190, 216, 255 });
-    DrawText(TextFormat("ZOOM %.1f", cameraZoom), 500, 126, 22, { 198, 208, 214, 255 });
+    DrawText(TextFormat("ZOOM %.1f", cameraZoom), 500, 96, 22, { 198, 208, 214, 255 });
+    DrawText(TextFormat("FERVOR %d / %d", fervor, fervorMax), 500, 126, 22, hymnTimer > 0.0f ? Color{ 250, 228, 164, 255 } : Color{ 168, 190, 216, 255 });
     DrawText(TextFormat("BUILD %s", BuildChoiceLabel(buildChoice)), 40, 154, 18, buildChoice == BuildChoice::WatchbowNest ? Color{ 194, 172, 118, 255 } : (buildChoice == BuildChoice::CenserShrine ? Color{ 244, 166, 84, 255 } : (buildChoice == BuildChoice::ReliquarySpire ? Color{ 122, 170, 236, 255 } : Color{ 162, 102, 76, 255 })));
-    DrawText((wave.number % 5 == 0) ? "OMEN // BREAKER WAVE" : "OMEN // STANDARD ASSAULT", 500, 154, 18, (wave.number % 5 == 0) ? Color{ 206, 96, 96, 255 } : Color{ 168, 178, 188, 255 });
+    DrawText((wave.number % 5 == 0) ? "OMEN // BREAKER WAVE" : "OMEN // THREE-LANE ASSAULT", 500, 154, 18, (wave.number % 5 == 0) ? Color{ 206, 96, 96, 255 } : Color{ 168, 178, 188, 255 });
 
     DrawRectangle(22, screenH - 146, screenW - 44, 124, Fade(BLACK, 0.72f));
     DrawRectangleLines(22, screenH - 146, screenW - 44, 124, { 110, 126, 172, 255 });
 
     if (state == PlayState::BuildPhase) {
         DrawText("BUILD // 1 Bow  2 Censer  3 Spire  4 Barricade  U Upgrade  X Sell  H Repair Gate  J Consecrate Core", 40, screenH - 126, 24, { 228, 220, 208, 255 });
-        DrawText("Left Click build   Mouse Wheel zoom   WASD axis pan   SPACE begin siege", 40, screenH - 92, 22, { 190, 198, 188, 255 });
+        DrawText("Huge battlefield   3 long roads   Mouse Wheel zoom   WASD axis pan   SPACE begin siege", 40, screenH - 92, 22, { 190, 198, 188, 255 });
     }
     else if (state == PlayState::BattlePhase) {
         int raiders = 0, brutes = 0, knights = 0, breakers = 0;
