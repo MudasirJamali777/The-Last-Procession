@@ -17,7 +17,8 @@ enum class PlayState {
 enum class BuildChoice {
     WatchbowNest,
     CenserShrine,
-    ReliquarySpire
+    ReliquarySpire,
+    PilgrimBarricade
 };
 
 enum class PropType {
@@ -41,6 +42,15 @@ struct ShotFx {
     Color color = WHITE;
 };
 
+struct DeathFx {
+    Vector3 pos = { 0.0f, 0.0f, 0.0f };
+    Vector3 vel = { 0.0f, 0.0f, 0.0f };
+    float life = 0.0f;
+    float maxLife = 0.0f;
+    float size = 0.18f;
+    Color color = WHITE;
+};
+
 class Game {
 public:
     Game();
@@ -48,14 +58,14 @@ public:
     void Run();
 
 private:
-    int screenW = 1280;
-    int screenH = 720;
+    int screenW = 1600;
+    int screenH = 900;
 
     Camera3D camera{};
     Vector3 cameraFocus = { 0.0f, 0.0f, 0.0f };
-    float cameraZoom = 22.0f;
-    float cameraMinZoom = 14.0f;
-    float cameraMaxZoom = 30.0f;
+    float cameraZoom = 16.0f;
+    float cameraMinZoom = 12.0f;
+    float cameraMaxZoom = 22.0f;
 
     GridMap grid;
     Fortress fortress;
@@ -64,6 +74,7 @@ private:
     std::vector<Tower> towers;
     std::vector<Enemy> enemies;
     std::vector<ShotFx> shots;
+    std::vector<DeathFx> deathFx;
     WaveState wave;
 
     PlayState state = PlayState::BuildPhase;
@@ -97,21 +108,29 @@ private:
     void UpdateEnemies(float dt);
     void UpdateTowers(float dt);
     void UpdateShots(float dt);
+    void UpdateDeathFx(float dt);
 
     void TryPlaceTower();
     void TryUpgradeTower();
+    void TrySellTower();
     void DamageGate(int amount);
     void DamageCore(int amount);
     void GainFervor(int amount);
     void TriggerWarHymn();
+    void RegisterEnemyKill(const Enemy& enemy);
     bool RayToGround(Vector3* outPoint) const;
     int FindTowerIndexAtCell(int x, int y) const;
     Tower MakeTower(BuildChoice choice, int cellX, int cellY) const;
     void ApplyTowerStats(Tower& tower) const;
     const char* BuildChoiceLabel(BuildChoice choice) const;
     const char* TowerLabel(TowerType type) const;
+    const char* EnemyLabel(EnemyType type) const;
     int GetTowerUpgradeGoldCost(const Tower& tower) const;
+    int GetTowerUpgradeIronCost(const Tower& tower) const;
     int GetTowerUpgradeEmberCost(const Tower& tower) const;
+    int GetTowerSellGoldRefund(const Tower& tower) const;
+    int GetTowerSellIronRefund(const Tower& tower) const;
+    int GetTowerSellEmberRefund(const Tower& tower) const;
 
     void Draw() const;
     void DrawWorld() const;

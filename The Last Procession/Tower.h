@@ -4,7 +4,8 @@
 enum class TowerType {
     WatchbowNest,
     CenserShrine,
-    ReliquarySpire
+    ReliquarySpire,
+    PilgrimBarricade
 };
 
 struct Tower {
@@ -18,6 +19,7 @@ struct Tower {
     float maxCooldown = 0.72f;
     int damage = 10;
     int goldCost = 25;
+    int ironCost = 0;
     int emberCost = 0;
     Color color = { 194, 172, 118, 255 };
 };

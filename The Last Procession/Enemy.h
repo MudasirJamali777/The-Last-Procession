@@ -3,7 +3,9 @@
 
 enum class EnemyType {
     AshRaider,
-    GraveBrute
+    GraveBrute,
+    BannerKnight,
+    ProcessionBreaker
 };
 
 struct Enemy {
