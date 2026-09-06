@@ -14,10 +14,16 @@ enum class PlayState {
     GameOver
 };
 
+enum class BuildChoice {
+    WatchbowNest,
+    CenserShrine
+};
+
 struct ShotFx {
     Vector3 start = { 0.0f, 0.0f, 0.0f };
     Vector3 end = { 0.0f, 0.0f, 0.0f };
     float life = 0.0f;
+    Color color = WHITE;
 };
 
 class Game {
@@ -35,13 +41,14 @@ private:
 
     GridMap grid;
     Fortress fortress;
-    std::vector<GridCoord> path;
+    std::vector<std::vector<GridCoord>> lanes;
     std::vector<Tower> towers;
     std::vector<Enemy> enemies;
     std::vector<ShotFx> shots;
     WaveState wave;
 
     PlayState state = PlayState::BuildPhase;
+    BuildChoice buildChoice = BuildChoice::WatchbowNest;
     int gold = 70;
     int iron = 40;
     int ember = 10;
@@ -55,7 +62,7 @@ private:
     void BuildMap();
     void BuildWave(int waveNumber);
     void StartWave();
-    void SpawnEnemy(EnemyType type);
+    void SpawnEnemy(EnemyType type, int laneIndex);
 
     void Update(float dt);
     void UpdateCamera(float dt);
@@ -67,9 +74,12 @@ private:
     void UpdateShots(float dt);
 
     void TryPlaceTower();
+    void DamageGate(int amount);
     void DamageCore(int amount);
     bool RayToGround(Vector3* outPoint) const;
     bool CellHasTower(int x, int y) const;
+    Tower MakeTower(BuildChoice choice, int cellX, int cellY) const;
+    const char* BuildChoiceLabel(BuildChoice choice) const;
 
     void Draw() const;
     void DrawWorld() const;

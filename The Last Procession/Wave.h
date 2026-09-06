@@ -5,6 +5,7 @@
 struct SpawnEntry {
     float spawnTime = 0.0f;
     EnemyType type = EnemyType::AshRaider;
+    int laneIndex = 0;
 };
 
 struct WaveState {

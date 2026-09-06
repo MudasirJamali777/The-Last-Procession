@@ -2,7 +2,8 @@
 #include <raylib.h>
 
 enum class TowerType {
-    WatchbowNest
+    WatchbowNest,
+    CenserShrine
 };
 
 struct Tower {
@@ -14,5 +15,7 @@ struct Tower {
     float cooldown = 0.0f;
     float maxCooldown = 0.72f;
     int damage = 10;
-    int cost = 25;
+    int goldCost = 25;
+    int emberCost = 0;
+    Color color = { 194, 172, 118, 255 };
 };
