@@ -23,4 +23,5 @@ struct Enemy {
     int gateDamage = 6;
     int coreDamage = 8;
     bool pastGate = false;
+    bool elite = false;
 };

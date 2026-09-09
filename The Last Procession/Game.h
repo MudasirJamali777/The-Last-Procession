@@ -51,6 +51,23 @@ struct DeathFx {
     Color color = WHITE;
 };
 
+struct WaystoneSite {
+    GridCoord cell{};
+    bool consecrated = false;
+};
+
+struct LegacyProfile {
+    int ash = 0;
+    int highestWave = 1;
+    int runsStarted = 0;
+    int totalWaystonesConsecrated = 0;
+    int breakersSlain = 0;
+    int rampartRank = 0;
+    int arsenalRank = 0;
+    int emberkeepRank = 0;
+    int hymnRank = 0;
+};
+
 class Game {
 public:
     Game();
@@ -71,6 +88,7 @@ private:
     Fortress fortress;
     std::vector<std::vector<GridCoord>> lanes;
     std::vector<Prop> props;
+    std::vector<WaystoneSite> waystones;
     std::vector<Tower> towers;
     std::vector<Enemy> enemies;
     std::vector<ShotFx> shots;
@@ -86,6 +104,14 @@ private:
     int fervorMax = 100;
     float hymnTimer = 0.0f;
     float worldTime = 0.0f;
+    float stormFlash = 0.0f;
+    float sanctumPulseTimer = 6.0f;
+    float sanctumPulseVisual = 0.0f;
+    std::string waveOmen = "THREE ROADS BURN";
+    int omenLane = -1;
+    LegacyProfile legacy{};
+    int legacyAshEarnedThisRun = 0;
+    bool hasSuspendedChronicle = false;
     std::string announcement = "BUILD YOUR FIRST WATCHBOW NEST";
     float announcementTimer = 0.0f;
 
@@ -93,14 +119,15 @@ private:
     bool hoveredValid = false;
     int hoveredTowerIndex = -1;
 
-    void ResetRun();
+    void ResetRun(bool preserveSuspend = false);
     void BuildMap();
     void AddProp(PropType type, int x, int y, bool blockCell);
     void BuildWave(int waveNumber);
     void StartWave();
-    void SpawnEnemy(EnemyType type, int laneIndex);
+    void SpawnEnemy(EnemyType type, int laneIndex, bool elite);
 
     void Update(float dt);
+    void UpdateAtmosphere(float dt);
     void UpdateCamera(float dt);
     void UpdateHoverCell();
     void UpdateBuildPhase();
@@ -110,9 +137,23 @@ private:
     void UpdateShots(float dt);
     void UpdateDeathFx(float dt);
 
+    void LoadLegacyProfile();
+    void SaveLegacyProfile() const;
+    bool HasSuspendedRun() const;
+    void SaveSuspendedRun() const;
+    bool LoadSuspendedRun();
+    void AwardLegacyAsh(int amount);
+    void TryBuyLegacyUpgrade(int slot);
+    int GetLegacyUpgradeCost(int slot) const;
+    int GetLegacyUpgradeRank(int slot) const;
+    int GetLegacyUpgradeMaxRank(int slot) const;
+    const char* GetLegacyUpgradeLabel(int slot) const;
+    void TriggerSanctumPulse();
+
     void TryPlaceTower();
     void TryUpgradeTower();
     void TrySellTower();
+    void TryConsecrateWaystone();
     void DamageGate(int amount);
     void DamageCore(int amount);
     void GainFervor(int amount);
@@ -120,6 +161,8 @@ private:
     void RegisterEnemyKill(const Enemy& enemy);
     bool RayToGround(Vector3* outPoint) const;
     int FindTowerIndexAtCell(int x, int y) const;
+    int FindWaystoneIndexAtCell(int x, int y) const;
+    bool IsTowerBlessed(const Tower& tower) const;
     Tower MakeTower(BuildChoice choice, int cellX, int cellY) const;
     void ApplyTowerStats(Tower& tower) const;
     const char* BuildChoiceLabel(BuildChoice choice) const;
@@ -131,6 +174,8 @@ private:
     int GetTowerSellGoldRefund(const Tower& tower) const;
     int GetTowerSellIronRefund(const Tower& tower) const;
     int GetTowerSellEmberRefund(const Tower& tower) const;
+    int GetConsecratedWaystoneCount() const;
+    float GetWarHymnDuration() const;
 
     void Draw() const;
     void DrawWorld() const;

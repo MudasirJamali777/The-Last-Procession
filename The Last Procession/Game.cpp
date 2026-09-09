@@ -2,6 +2,12 @@
 #include "Utils.h"
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+
+namespace {
+    const char* kProfileSavePath = "the_last_procession_profile.txt";
+    const char* kSuspendSavePath = "the_last_procession_suspend.txt";
+}
 
 Game::Game() {
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
@@ -25,7 +31,9 @@ Game::Game() {
     camera.fovy = 36.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
-    ResetRun();
+    LoadLegacyProfile();
+    hasSuspendedChronicle = HasSuspendedRun();
+    ResetRun(hasSuspendedChronicle);
 }
 
 Game::~Game() {
@@ -47,13 +55,19 @@ void Game::Run() {
     }
 }
 
-void Game::ResetRun() {
-    gold = 140;
-    iron = 95;
-    ember = 28;
+void Game::ResetRun(bool preserveSuspend) {
+    gold = 140 + legacy.arsenalRank * 4;
+    iron = 95 + legacy.rampartRank * 6;
+    ember = 28 + legacy.emberkeepRank * 5;
     fervor = 0;
     hymnTimer = 0.0f;
     worldTime = 0.0f;
+    stormFlash = 0.0f;
+    sanctumPulseTimer = 6.0f;
+    sanctumPulseVisual = 0.0f;
+    waveOmen = "THREE ROADS BURN";
+    omenLane = -1;
+    legacyAshEarnedThisRun = 0;
     towers.clear();
     enemies.clear();
     shots.clear();
@@ -61,14 +75,26 @@ void Game::ResetRun() {
     fortress = Fortress{};
     state = PlayState::BuildPhase;
     buildChoice = BuildChoice::WatchbowNest;
-    announcement = "MEGA PROCESSION MAP // 3 ROADS  HUGE FORTRESS  WIDE SIEGE FIELD";
-    announcementTimer = 4.8f;
+    announcement = preserveSuspend
+        ? "BATCH 10 // NEW PROCESSION, PRESS L TO RESTORE YOUR CHRONICLE"
+        : "BATCH 10 // STORMFRONT, ELITES, AND A LIVING FORTRESS";
+    announcementTimer = 5.2f;
     hoveredValid = false;
     hoveredCell = { -1, -1 };
     hoveredTowerIndex = -1;
     cameraZoom = 40.0f;
     BuildMap();
+    fortress.gateMaxHp += legacy.rampartRank * 22;
+    fortress.gateHp = fortress.gateMaxHp;
     BuildWave(1);
+    if (!preserveSuspend) {
+        legacy.runsStarted++;
+    }
+    SaveLegacyProfile();
+    if (!preserveSuspend) {
+        SaveSuspendedRun();
+        hasSuspendedChronicle = true;
+    }
 }
 
 void Game::AddProp(PropType type, int x, int y, bool blockCell) {
@@ -83,6 +109,301 @@ void Game::AddProp(PropType type, int x, int y, bool blockCell) {
     }
 }
 
+void Game::LoadLegacyProfile() {
+    legacy = LegacyProfile{};
+
+    std::ifstream in(kProfileSavePath);
+    if (!in) return;
+
+    std::string header;
+    in >> header;
+    if (header != "TLP_PROFILE_V1") return;
+
+    std::string key;
+    while (in >> key) {
+        int value = 0;
+        in >> value;
+        if (key == "ash") legacy.ash = value;
+        else if (key == "highestWave") legacy.highestWave = value;
+        else if (key == "runsStarted") legacy.runsStarted = value;
+        else if (key == "waystones") legacy.totalWaystonesConsecrated = value;
+        else if (key == "breakers") legacy.breakersSlain = value;
+        else if (key == "rampart") legacy.rampartRank = value;
+        else if (key == "arsenal") legacy.arsenalRank = value;
+        else if (key == "emberkeep") legacy.emberkeepRank = value;
+        else if (key == "hymn") legacy.hymnRank = value;
+    }
+
+    legacy.ash = std::max(0, legacy.ash);
+    legacy.highestWave = std::max(1, legacy.highestWave);
+    legacy.runsStarted = std::max(0, legacy.runsStarted);
+    legacy.totalWaystonesConsecrated = std::max(0, legacy.totalWaystonesConsecrated);
+    legacy.breakersSlain = std::max(0, legacy.breakersSlain);
+    legacy.rampartRank = std::max(0, std::min(legacy.rampartRank, GetLegacyUpgradeMaxRank(0)));
+    legacy.arsenalRank = std::max(0, std::min(legacy.arsenalRank, GetLegacyUpgradeMaxRank(1)));
+    legacy.emberkeepRank = std::max(0, std::min(legacy.emberkeepRank, GetLegacyUpgradeMaxRank(2)));
+    legacy.hymnRank = std::max(0, std::min(legacy.hymnRank, GetLegacyUpgradeMaxRank(3)));
+}
+
+void Game::SaveLegacyProfile() const {
+    std::ofstream out(kProfileSavePath, std::ios::trunc);
+    if (!out) return;
+
+    out << "TLP_PROFILE_V1\n";
+    out << "ash " << legacy.ash << "\n";
+    out << "highestWave " << legacy.highestWave << "\n";
+    out << "runsStarted " << legacy.runsStarted << "\n";
+    out << "waystones " << legacy.totalWaystonesConsecrated << "\n";
+    out << "breakers " << legacy.breakersSlain << "\n";
+    out << "rampart " << legacy.rampartRank << "\n";
+    out << "arsenal " << legacy.arsenalRank << "\n";
+    out << "emberkeep " << legacy.emberkeepRank << "\n";
+    out << "hymn " << legacy.hymnRank << "\n";
+}
+
+bool Game::HasSuspendedRun() const {
+    std::ifstream in(kSuspendSavePath);
+    if (!in) return false;
+
+    std::string header;
+    in >> header;
+    return header == "TLP_RUN_V1";
+}
+
+void Game::SaveSuspendedRun() const {
+    std::ofstream out(kSuspendSavePath, std::ios::trunc);
+    if (!out) return;
+
+    out << "TLP_RUN_V1\n";
+    out << "wave " << wave.number << "\n";
+    out << "gold " << gold << "\n";
+    out << "iron " << iron << "\n";
+    out << "ember " << ember << "\n";
+    out << "fervor " << fervor << "\n";
+    out << "buildChoice " << (int)buildChoice << "\n";
+    out << "gateHp " << fortress.gateHp << "\n";
+    out << "gateMax " << fortress.gateMaxHp << "\n";
+    out << "coreHp " << fortress.coreHp << "\n";
+    out << "coreMax " << fortress.coreMaxHp << "\n";
+    out << "cameraZoom " << cameraZoom << "\n";
+    out << "runAsh " << legacyAshEarnedThisRun << "\n";
+    out << "waystoneCount " << waystones.size() << "\n";
+    for (const WaystoneSite& stone : waystones) {
+        out << stone.cell.x << ' ' << stone.cell.y << ' ' << (stone.consecrated ? 1 : 0) << "\n";
+    }
+    out << "towerCount " << towers.size() << "\n";
+    for (const Tower& tower : towers) {
+        out << (int)tower.type << ' ' << tower.gridX << ' ' << tower.gridY << ' ' << tower.level << ' ' << tower.cooldown << "\n";
+    }
+}
+
+bool Game::LoadSuspendedRun() {
+    std::ifstream in(kSuspendSavePath);
+    if (!in) return false;
+
+    std::string header;
+    in >> header;
+    if (header != "TLP_RUN_V1") return false;
+
+    struct SavedStone { int x = 0; int y = 0; int consecrated = 0; };
+    struct SavedTower { int type = 0; int x = 0; int y = 0; int level = 1; float cooldown = 0.0f; };
+
+    int savedWave = 1;
+    int savedGold = 140;
+    int savedIron = 95;
+    int savedEmber = 28;
+    int savedFervor = 0;
+    int savedBuildChoice = 0;
+    int savedGateHp = 95;
+    int savedGateMax = 95;
+    int savedCoreHp = 120;
+    int savedCoreMax = 120;
+    float savedZoom = 40.0f;
+    int savedRunAsh = 0;
+    std::vector<SavedStone> stoneData;
+    std::vector<SavedTower> towerData;
+
+    std::string key;
+    while (in >> key) {
+        if (key == "wave") in >> savedWave;
+        else if (key == "gold") in >> savedGold;
+        else if (key == "iron") in >> savedIron;
+        else if (key == "ember") in >> savedEmber;
+        else if (key == "fervor") in >> savedFervor;
+        else if (key == "buildChoice") in >> savedBuildChoice;
+        else if (key == "gateHp") in >> savedGateHp;
+        else if (key == "gateMax") in >> savedGateMax;
+        else if (key == "coreHp") in >> savedCoreHp;
+        else if (key == "coreMax") in >> savedCoreMax;
+        else if (key == "cameraZoom") in >> savedZoom;
+        else if (key == "runAsh") in >> savedRunAsh;
+        else if (key == "waystoneCount") {
+            int count = 0;
+            in >> count;
+            stoneData.clear();
+            for (int i = 0; i < count; ++i) {
+                SavedStone stone{};
+                in >> stone.x >> stone.y >> stone.consecrated;
+                stoneData.push_back(stone);
+            }
+        }
+        else if (key == "towerCount") {
+            int count = 0;
+            in >> count;
+            towerData.clear();
+            for (int i = 0; i < count; ++i) {
+                SavedTower tower{};
+                in >> tower.type >> tower.x >> tower.y >> tower.level >> tower.cooldown;
+                towerData.push_back(tower);
+            }
+        }
+    }
+
+    gold = std::max(0, savedGold);
+    iron = std::max(0, savedIron);
+    ember = std::max(0, savedEmber);
+    fervor = std::max(0, std::min(savedFervor, fervorMax));
+    hymnTimer = 0.0f;
+    worldTime = 0.0f;
+    stormFlash = 0.0f;
+    sanctumPulseTimer = 6.0f;
+    sanctumPulseVisual = 0.0f;
+    legacyAshEarnedThisRun = std::max(0, savedRunAsh);
+    towers.clear();
+    enemies.clear();
+    shots.clear();
+    deathFx.clear();
+    fortress = Fortress{};
+    state = PlayState::BuildPhase;
+    buildChoice = (BuildChoice)std::max(0, std::min(savedBuildChoice, 3));
+    hoveredValid = false;
+    hoveredCell = { -1, -1 };
+    hoveredTowerIndex = -1;
+    cameraZoom = ClampFloat(savedZoom, cameraMinZoom, cameraMaxZoom);
+    BuildMap();
+
+    fortress.gateMaxHp = std::max(1, savedGateMax);
+    fortress.gateHp = std::max(0, std::min(savedGateHp, fortress.gateMaxHp));
+    fortress.coreMaxHp = std::max(1, savedCoreMax);
+    fortress.coreHp = std::max(0, std::min(savedCoreHp, fortress.coreMaxHp));
+
+    for (const SavedStone& stone : stoneData) {
+        int index = FindWaystoneIndexAtCell(stone.x, stone.y);
+        if (index >= 0) {
+            waystones[index].consecrated = (stone.consecrated != 0);
+        }
+    }
+
+    for (const SavedTower& saved : towerData) {
+        if (!grid.InBounds(saved.x, saved.y)) continue;
+        if (FindWaystoneIndexAtCell(saved.x, saved.y) >= 0) continue;
+        GridTile& tile = grid.At(saved.x, saved.y);
+        if (tile.kind != TileKind::Buildable || tile.occupied) continue;
+
+        Tower tower{};
+        tower.type = (TowerType)std::max(0, std::min(saved.type, 3));
+        tower.gridX = saved.x;
+        tower.gridY = saved.y;
+        tower.level = std::max(1, std::min(saved.level, 3));
+        tower.pos = grid.CellCenter(saved.x, saved.y);
+        tower.pos.y = 1.0f;
+        ApplyTowerStats(tower);
+        tower.cooldown = ClampFloat(saved.cooldown, 0.0f, tower.maxCooldown);
+        towers.push_back(tower);
+        tile.occupied = true;
+    }
+
+    BuildWave(std::max(1, savedWave));
+    announcement = "CHRONICLE RESTORED // THE STORM IS HELD AT THE GATE";
+    announcementTimer = 3.4f;
+    hasSuspendedChronicle = true;
+    return true;
+}
+
+void Game::AwardLegacyAsh(int amount) {
+    if (amount <= 0) return;
+    legacy.ash += amount;
+    legacyAshEarnedThisRun += amount;
+    SaveLegacyProfile();
+}
+
+void Game::TryBuyLegacyUpgrade(int slot) {
+    if (state != PlayState::BuildPhase) return;
+
+    int rank = GetLegacyUpgradeRank(slot);
+    int maxRank = GetLegacyUpgradeMaxRank(slot);
+    if (rank >= maxRank) {
+        announcement = "LEGACY DOCTRINE AT MAX RANK";
+        announcementTimer = 1.0f;
+        return;
+    }
+
+    int cost = GetLegacyUpgradeCost(slot);
+    if (legacy.ash < cost) {
+        announcement = "NOT ENOUGH LEGACY ASH";
+        announcementTimer = 1.0f;
+        return;
+    }
+
+    legacy.ash -= cost;
+    if (slot == 0) legacy.rampartRank++;
+    else if (slot == 1) legacy.arsenalRank++;
+    else if (slot == 2) legacy.emberkeepRank++;
+    else legacy.hymnRank++;
+
+    if (slot == 0) {
+        fortress.gateMaxHp += 22;
+        fortress.gateHp += 22;
+        if (fortress.gateHp > fortress.gateMaxHp) fortress.gateHp = fortress.gateMaxHp;
+        iron += 6;
+    }
+    else if (slot == 1) {
+        for (Tower& tower : towers) {
+            float cooldownRatio = (tower.maxCooldown > 0.0f) ? (tower.cooldown / tower.maxCooldown) : 0.0f;
+            ApplyTowerStats(tower);
+            tower.cooldown = tower.maxCooldown * cooldownRatio;
+        }
+    }
+    else if (slot == 2) {
+        ember += 6;
+    }
+    else {
+        GainFervor(12);
+    }
+
+    SaveLegacyProfile();
+    SaveSuspendedRun();
+    hasSuspendedChronicle = true;
+    announcement = TextFormat("%s AWAKENED // RANK %d", GetLegacyUpgradeLabel(slot), GetLegacyUpgradeRank(slot));
+    announcementTimer = 1.6f;
+}
+
+int Game::GetLegacyUpgradeCost(int slot) const {
+    int rank = GetLegacyUpgradeRank(slot);
+    if (slot == 0) return 18 + rank * 16 + rank * rank * 4;
+    if (slot == 1) return 22 + rank * 18 + rank * rank * 5;
+    if (slot == 2) return 16 + rank * 14 + rank * rank * 4;
+    return 20 + rank * 17 + rank * rank * 5;
+}
+
+int Game::GetLegacyUpgradeRank(int slot) const {
+    if (slot == 0) return legacy.rampartRank;
+    if (slot == 1) return legacy.arsenalRank;
+    if (slot == 2) return legacy.emberkeepRank;
+    return legacy.hymnRank;
+}
+
+int Game::GetLegacyUpgradeMaxRank(int) const {
+    return 4;
+}
+
+const char* Game::GetLegacyUpgradeLabel(int slot) const {
+    if (slot == 0) return "RAMPART DOCTRINE";
+    if (slot == 1) return "ARSENAL DOCTRINE";
+    if (slot == 2) return "EMBER RELIQUARY";
+    return "HYMNAL CODEX";
+}
+
 void Game::BuildMap() {
     grid.width = 44;
     grid.height = 34;
@@ -90,6 +411,7 @@ void Game::BuildMap() {
     grid.origin = { -52.8f, 0.0f, -40.8f };
     grid.tiles.assign((size_t)grid.width * (size_t)grid.height, GridTile{});
     props.clear();
+    waystones.clear();
 
     for (int y = 0; y < grid.height; ++y) {
         for (int x = 0; x < grid.width; ++x) {
@@ -187,12 +509,24 @@ void Game::BuildMap() {
         }
         };
 
+    auto addWaystone = [&](int x, int y) {
+        if (!grid.InBounds(x, y)) return;
+        GridTile& tile = grid.At(x, y);
+        tile.kind = TileKind::Blocked;
+        tile.occupied = false;
+        tile.height = std::max(tile.height, 0.26f);
+        waystones.push_back({ { x, y }, false });
+        };
+
     for (int x = 2; x <= 18; x += 4) blockBuildable(x, 2 + (x % 3));
     for (int x = 4; x <= 22; x += 5) blockBuildable(x, 10 + (x % 4));
     for (int x = 6; x <= 24; x += 4) blockBuildable(x, 30 - (x % 5));
     for (int y = 4; y <= 28; y += 4) blockBuildable(38, y);
     for (int y = 6; y <= 26; y += 5) blockBuildable(41, y);
-    blockBuildable(27, 10); blockBuildable(27, 22); blockBuildable(30, 9); blockBuildable(30, 23);
+    blockBuildable(27, 10);
+    blockBuildable(27, 22);
+    blockBuildable(30, 9);
+    blockBuildable(30, 23);
 
     int deadTrees[][2] = { {2,3},{6,2},{10,3},{14,2},{18,3},{8,12},{16,10},{12,29},{20,27},{38,8},{41,11},{38,24} };
     for (auto& p : deadTrees) AddProp(PropType::DeadTree, p[0], p[1], true);
@@ -207,6 +541,10 @@ void Game::BuildMap() {
     int banners[][2] = { {32,11},{37,11},{32,21},{37,21},{40,14},{40,18} };
     for (auto& p : banners) AddProp(PropType::BannerPole, p[0], p[1], false);
 
+    addWaystone(24, 8);
+    addWaystone(24, 24);
+    addWaystone(29, 13);
+
     cameraFocus = grid.CellCenter(21, 16);
 }
 
@@ -218,40 +556,107 @@ void Game::BuildWave(int waveNumber) {
     int laneCount = (int)lanes.size();
     if (laneCount <= 0) laneCount = 1;
 
-    int count = 15 + (waveNumber - 1) * 3;
+    int count = 16 + (waveNumber - 1) * 4;
     bool bossWave = (waveNumber % 5 == 0);
+    omenLane = -1;
+    waveOmen = "THREE ROADS BURN";
+
+    if (bossWave) {
+        omenLane = laneCount > 1 ? 1 : 0;
+        waveOmen = (waveNumber >= 10)
+            ? "DOUBLE BREAKER PROCESSION"
+            : "BREAKER PROCESSION";
+    }
+    else {
+        int pattern = waveNumber % 4;
+        if (pattern == 2) {
+            omenLane = 0;
+            waveOmen = "NORTH ROAD ASH SURGE";
+        }
+        else if (pattern == 3) {
+            omenLane = laneCount > 1 ? 1 : 0;
+            waveOmen = "MIDDLE ROAD KNIGHT LANCE";
+        }
+        else if (pattern == 0) {
+            omenLane = laneCount > 2 ? 2 : laneCount - 1;
+            waveOmen = "SOUTH ROAD GRAVE FLOOD";
+        }
+    }
 
     for (int i = 0; i < count; ++i) {
         SpawnEntry entry{};
-        entry.spawnTime = 0.56f * i;
-        entry.laneIndex = i % laneCount;
+        entry.spawnTime = 0.54f * i;
+        entry.laneIndex = (omenLane >= 0 && (i % 3 != 2)) ? omenLane : (i % laneCount);
         entry.type = EnemyType::AshRaider;
 
-        if (waveNumber >= 2 && (i % 4 == 3)) {
-            entry.type = EnemyType::GraveBrute;
-            entry.spawnTime += 0.10f;
+        if (omenLane >= 0 && entry.laneIndex == omenLane) {
+            entry.spawnTime -= 0.08f * (float)(1 + (i % 2));
         }
-        if (waveNumber >= 3 && (i % 5 == 2)) {
+        if (entry.spawnTime < 0.0f) entry.spawnTime = 0.0f;
+
+        if (waveNumber >= 2 && ((i % 4) == 3 || (omenLane == 2 && (i % 3) == 0))) {
+            entry.type = EnemyType::GraveBrute;
+            entry.spawnTime += 0.08f;
+        }
+        if (waveNumber >= 3 && ((i % 5) == 2 || (omenLane == 1 && (i % 3) == 1))) {
             entry.type = EnemyType::BannerKnight;
         }
-        if (waveNumber >= 6 && (i % 3 == 0)) {
-            entry.spawnTime -= 0.05f;
+        if (waveNumber >= 6 && omenLane == 0 && (i % 4) == 1) {
+            entry.type = EnemyType::AshRaider;
         }
+
+        entry.elite = waveNumber >= 4 && ((i + waveNumber + entry.laneIndex) % 7 == 0);
+        if (omenLane >= 0 && entry.laneIndex == omenLane && waveNumber >= 6 && (i % 5) == 0) {
+            entry.elite = true;
+        }
+        if (bossWave && i >= count - 5) {
+            entry.elite = true;
+        }
+
+        if (entry.type == EnemyType::AshRaider && waveNumber >= 8 && entry.elite && omenLane == 1) {
+            entry.type = EnemyType::BannerKnight;
+        }
+
         wave.spawns.push_back(entry);
     }
 
     if (bossWave) {
+        SpawnEntry escortA{};
+        escortA.spawnTime = 0.54f * count + 0.25f;
+        escortA.laneIndex = 0;
+        escortA.type = EnemyType::BannerKnight;
+        escortA.elite = true;
+        wave.spawns.push_back(escortA);
+
+        SpawnEntry escortB{};
+        escortB.spawnTime = 0.54f * count + 0.65f;
+        escortB.laneIndex = laneCount > 1 ? 1 : 0;
+        escortB.type = EnemyType::GraveBrute;
+        escortB.elite = true;
+        wave.spawns.push_back(escortB);
+
+        if (laneCount > 2) {
+            SpawnEntry escortC{};
+            escortC.spawnTime = 0.54f * count + 1.00f;
+            escortC.laneIndex = 2;
+            escortC.type = EnemyType::BannerKnight;
+            escortC.elite = true;
+            wave.spawns.push_back(escortC);
+        }
+
         SpawnEntry bossA{};
-        bossA.spawnTime = 0.56f * count + 1.2f;
+        bossA.spawnTime = 0.54f * count + 1.45f;
         bossA.laneIndex = laneCount > 1 ? 1 : 0;
         bossA.type = EnemyType::ProcessionBreaker;
+        bossA.elite = (waveNumber >= 15);
         wave.spawns.push_back(bossA);
 
         if (waveNumber >= 10 && laneCount >= 3) {
             SpawnEntry bossB{};
-            bossB.spawnTime = bossA.spawnTime + 2.0f;
+            bossB.spawnTime = bossA.spawnTime + 2.2f;
             bossB.laneIndex = 2;
             bossB.type = EnemyType::ProcessionBreaker;
+            bossB.elite = (waveNumber >= 15);
             wave.spawns.push_back(bossB);
         }
     }
@@ -260,23 +665,31 @@ void Game::BuildWave(int waveNumber) {
 void Game::StartWave() {
     if (state != PlayState::BuildPhase) return;
 
+    SaveSuspendedRun();
+    hasSuspendedChronicle = true;
+    if (wave.number > legacy.highestWave) {
+        legacy.highestWave = wave.number;
+        SaveLegacyProfile();
+    }
+
     wave.active = true;
     wave.timer = 0.0f;
     wave.nextSpawnIndex = 0;
     state = PlayState::BattlePhase;
-    announcement = (wave.number % 5 == 0)
-        ? TextFormat("WAVE %d // BREAKER MARCH", wave.number)
-        : TextFormat("WAVE %d // THREE ROADS BURN", wave.number);
-    announcementTimer = 2.6f;
+    sanctumPulseTimer = std::max(2.6f, 6.0f - 0.4f * (float)GetConsecratedWaystoneCount());
+    if (stormFlash < 0.12f) stormFlash = 0.12f;
+    announcement = TextFormat("WAVE %d // %s", wave.number, waveOmen.c_str());
+    announcementTimer = 2.8f;
 }
 
-void Game::SpawnEnemy(EnemyType type, int laneIndex) {
+void Game::SpawnEnemy(EnemyType type, int laneIndex, bool elite) {
     if (laneIndex < 0 || laneIndex >= (int)lanes.size() || lanes[laneIndex].empty()) laneIndex = 0;
 
     Enemy enemy{};
     enemy.type = type;
     enemy.laneIndex = laneIndex;
     enemy.pathIndex = 0;
+    enemy.elite = elite;
 
     if (type == EnemyType::ProcessionBreaker) {
         enemy.hp = 340 + (wave.number - 1) * 55;
@@ -315,6 +728,21 @@ void Game::SpawnEnemy(EnemyType type, int laneIndex) {
         enemy.pos.y = 0.64f;
     }
 
+    if (elite) {
+        float hpMul = (type == EnemyType::ProcessionBreaker) ? 1.22f : 1.48f;
+        enemy.hp = (int)std::round((float)enemy.hp * hpMul);
+        enemy.maxHp = enemy.hp;
+        enemy.speed *= (type == EnemyType::ProcessionBreaker) ? 1.05f : 1.10f;
+        enemy.attackCooldown *= 0.92f;
+        enemy.gateDamage += 3 + wave.number / 6;
+        enemy.coreDamage += 3 + wave.number / 5;
+        enemy.pos.y += 0.10f;
+    }
+
+    if (omenLane >= 0 && laneIndex == omenLane) {
+        enemy.speed *= 1.04f;
+    }
+
     Vector3 start = grid.CellCenter(lanes[laneIndex][0].x, lanes[laneIndex][0].y);
     enemy.pos.x = start.x - 1.2f;
     enemy.pos.z = start.z;
@@ -331,10 +759,16 @@ void Game::Update(float dt) {
         hymnTimer -= dt;
         if (hymnTimer < 0.0f) hymnTimer = 0.0f;
     }
+    UpdateAtmosphere(dt);
 
     if (state == PlayState::GameOver) {
         UpdateDeathFx(dt);
-        if (IsKeyPressed(KEY_ENTER)) ResetRun();
+        if (IsKeyPressed(KEY_L)) {
+            if (LoadSuspendedRun()) return;
+            announcement = "NO CHRONICLE TO RESTORE";
+            announcementTimer = 1.2f;
+        }
+        if (IsKeyPressed(KEY_ENTER)) ResetRun(false);
         return;
     }
 
@@ -345,6 +779,43 @@ void Game::Update(float dt) {
 
     if (state == PlayState::BuildPhase) UpdateBuildPhase();
     else if (state == PlayState::BattlePhase) UpdateBattlePhase(dt);
+}
+
+void Game::UpdateAtmosphere(float dt) {
+    if (stormFlash > 0.0f) {
+        stormFlash -= dt * 0.80f;
+        if (stormFlash < 0.0f) stormFlash = 0.0f;
+    }
+    if (sanctumPulseVisual > 0.0f) {
+        sanctumPulseVisual -= dt * 0.72f;
+        if (sanctumPulseVisual < 0.0f) sanctumPulseVisual = 0.0f;
+    }
+
+    if (state == PlayState::BattlePhase) {
+        float interval = std::max(4.4f, 6.8f - 0.10f * (float)wave.number);
+        int prevStep = (int)((worldTime - dt) / interval);
+        int currStep = (int)(worldTime / interval);
+        if (currStep != prevStep) {
+            float flash = (wave.number % 5 == 0) ? 0.42f : (omenLane >= 0 ? 0.26f : 0.18f);
+            if (flash > stormFlash) stormFlash = flash;
+        }
+
+        int consecrated = GetConsecratedWaystoneCount();
+        if (consecrated >= 2 && fortress.coreHp > 0) {
+            sanctumPulseTimer -= dt;
+            float recharge = std::max(4.2f, 10.5f - consecrated * 1.2f - legacy.hymnRank * 0.6f);
+            if (sanctumPulseTimer <= 0.0f) {
+                TriggerSanctumPulse();
+                sanctumPulseTimer = recharge;
+            }
+        }
+        else {
+            sanctumPulseTimer = 5.0f;
+        }
+    }
+    else {
+        sanctumPulseTimer = 5.0f;
+    }
 }
 
 void Game::UpdateCamera(float dt) {
@@ -390,8 +861,18 @@ void Game::UpdateBuildPhase() {
     if (IsKeyPressed(KEY_TWO)) { buildChoice = BuildChoice::CenserShrine; announcement = "CENSER SHRINE SELECTED"; announcementTimer = 1.0f; }
     if (IsKeyPressed(KEY_THREE)) { buildChoice = BuildChoice::ReliquarySpire; announcement = "RELIQUARY SPIRE SELECTED"; announcementTimer = 1.0f; }
     if (IsKeyPressed(KEY_FOUR)) { buildChoice = BuildChoice::PilgrimBarricade; announcement = "PILGRIM BARRICADE SELECTED"; announcementTimer = 1.0f; }
+    if (IsKeyPressed(KEY_L)) {
+        if (LoadSuspendedRun()) return;
+        announcement = "NO CHRONICLE TO RESTORE";
+        announcementTimer = 1.1f;
+    }
+    if (IsKeyPressed(KEY_FIVE)) TryBuyLegacyUpgrade(0);
+    if (IsKeyPressed(KEY_SIX)) TryBuyLegacyUpgrade(1);
+    if (IsKeyPressed(KEY_SEVEN)) TryBuyLegacyUpgrade(2);
+    if (IsKeyPressed(KEY_EIGHT)) TryBuyLegacyUpgrade(3);
     if (IsKeyPressed(KEY_U)) TryUpgradeTower();
     if (IsKeyPressed(KEY_X)) TrySellTower();
+    if (IsKeyPressed(KEY_C)) TryConsecrateWaystone();
 
     if (IsKeyPressed(KEY_H)) {
         if (fortress.gateHp >= fortress.gateMaxHp) {
@@ -400,8 +881,10 @@ void Game::UpdateBuildPhase() {
         }
         else if (iron >= 15) {
             iron -= 15;
-            fortress.gateHp += 22;
+            fortress.gateHp += 22 + legacy.rampartRank * 4;
             if (fortress.gateHp > fortress.gateMaxHp) fortress.gateHp = fortress.gateMaxHp;
+            SaveSuspendedRun();
+            hasSuspendedChronicle = true;
             announcement = "GATE REPAIRED";
             announcementTimer = 1.2f;
         }
@@ -419,8 +902,10 @@ void Game::UpdateBuildPhase() {
         else if (gold >= 30 && ember >= 10) {
             gold -= 30;
             ember -= 10;
-            fortress.coreHp += 18;
+            fortress.coreHp += 18 + legacy.hymnRank * 2;
             if (fortress.coreHp > fortress.coreMaxHp) fortress.coreHp = fortress.coreMaxHp;
+            SaveSuspendedRun();
+            hasSuspendedChronicle = true;
             announcement = "HOLY CORE CONSECRATED";
             announcementTimer = 1.2f;
         }
@@ -441,7 +926,8 @@ void Game::UpdateBattlePhase(float dt) {
         wave.timer += dt;
         while (wave.nextSpawnIndex < (int)wave.spawns.size() && wave.timer >= wave.spawns[wave.nextSpawnIndex].spawnTime) {
             const SpawnEntry& entry = wave.spawns[wave.nextSpawnIndex];
-            SpawnEnemy(entry.type, entry.laneIndex);
+            SpawnEnemy(entry.type, entry.laneIndex, entry.elite);
+            if (entry.elite && stormFlash < 0.14f) stormFlash = 0.14f;
             wave.nextSpawnIndex++;
         }
     }
@@ -452,18 +938,32 @@ void Game::UpdateBattlePhase(float dt) {
     if (wave.nextSpawnIndex >= (int)wave.spawns.size() && enemies.empty()) {
         wave.active = false;
         state = PlayState::BuildPhase;
-        gold += 32 + wave.number * 9;
-        iron += 14 + wave.number * 4 + (fortress.gateHp > 0 ? 6 : 0);
-        ember += 4 + wave.number;
+        sanctumPulseVisual = 0.0f;
+
+        int clearedWave = wave.number;
+        int blessedSites = GetConsecratedWaystoneCount();
+        gold += 32 + clearedWave * 9 + blessedSites * 6;
+        iron += 14 + clearedWave * 4 + (fortress.gateHp > 0 ? 6 : 0) + blessedSites * 3;
+        ember += 4 + clearedWave + blessedSites * 2 + legacy.emberkeepRank;
         if (fortress.gateHp > 0) {
-            fortress.gateHp += 6;
+            fortress.gateHp += 6 + blessedSites * 2 + legacy.rampartRank * 2;
             if (fortress.gateHp > fortress.gateMaxHp) fortress.gateHp = fortress.gateMaxHp;
         }
-        fervor += 18;
+        fervor += 18 + blessedSites * 4 + legacy.hymnRank * 2;
         if (fervor > fervorMax) fervor = fervorMax;
+        AwardLegacyAsh(8 + clearedWave * 2 + blessedSites * 2 + ((clearedWave % 5 == 0) ? 6 : 0));
         wave.number++;
         BuildWave(wave.number);
-        announcement = "SIEGE BROKEN // REBUILD, UPGRADE, CONSECRATE";
+        SaveSuspendedRun();
+        hasSuspendedChronicle = true;
+        if (stormFlash < 0.20f) stormFlash = 0.20f;
+
+        if (blessedSites > 0) {
+            announcement = TextFormat("SIEGE BROKEN // %d WAYSTONES EMPOWER THE MARCH", blessedSites);
+        }
+        else {
+            announcement = "SIEGE BROKEN // REBUILD, UPGRADE, CONSECRATE";
+        }
         announcementTimer = 3.2f;
     }
 }
@@ -479,7 +979,9 @@ void Game::UpdateEnemies(float dt) {
 
         float speedMul = 1.0f;
         if (enemy.slowTimer > 0.0f) speedMul *= 0.58f;
-        if (hymnTimer > 0.0f) speedMul *= 0.84f;
+        if (hymnTimer > 0.0f) speedMul *= enemy.elite ? 0.88f : 0.84f;
+        if (enemy.elite) speedMul *= 1.08f;
+        if (omenLane >= 0 && enemy.laneIndex == omenLane && !enemy.pastGate) speedMul *= 1.06f;
 
         if (enemy.type != EnemyType::BannerKnight) {
             for (const Enemy& other : enemies) {
@@ -534,28 +1036,39 @@ void Game::UpdateTowers(float dt) {
     float towerSpeedMul = hymnTimer > 0.0f ? 1.75f : 1.0f;
 
     for (Tower& tower : towers) {
-        tower.cooldown -= dt * towerSpeedMul;
+        bool blessed = IsTowerBlessed(tower);
+        float effectiveRange = tower.range + (blessed ? 0.90f : 0.0f);
+        int effectiveDamage = tower.damage + (blessed ? 3 : 0);
+        float fireMul = towerSpeedMul * (blessed ? 1.18f : 1.0f);
+
+        tower.cooldown -= dt * fireMul;
         if (tower.cooldown > 0.0f) continue;
 
         if (tower.type == TowerType::CenserShrine) {
             bool hitAny = false;
+            int hitCount = 0;
             for (Enemy& enemy : enemies) {
                 if (enemy.hp <= 0) continue;
-                if (DistanceXZ(tower.pos, enemy.pos) <= tower.range) {
+                if (DistanceXZ(tower.pos, enemy.pos) <= effectiveRange) {
                     int before = enemy.hp;
-                    enemy.hp -= tower.damage;
+                    enemy.hp -= effectiveDamage;
                     enemy.hitFlash = 0.08f;
+                    if (tower.level >= 2) {
+                        enemy.slowTimer = std::max(enemy.slowTimer, 0.35f + 0.25f * (float)tower.level);
+                    }
                     if (before > 0 && enemy.hp <= 0) RegisterEnemyKill(enemy);
                     hitAny = true;
+                    hitCount++;
                 }
             }
             if (hitAny) {
                 tower.cooldown = tower.maxCooldown;
+                if (blessed && hitCount >= 2) GainFervor(hitCount);
                 ShotFx fx{};
                 fx.start = { tower.pos.x, tower.pos.y + 0.5f, tower.pos.z };
                 fx.end = { tower.pos.x, tower.pos.y + 2.6f, tower.pos.z };
-                fx.life = 0.14f;
-                fx.color = { 244, 166, 84, 255 };
+                fx.life = 0.16f;
+                fx.color = blessed ? Color{ 255, 214, 142, 255 } : Color{ 244, 166, 84, 255 };
                 shots.push_back(fx);
             }
             continue;
@@ -563,7 +1076,7 @@ void Game::UpdateTowers(float dt) {
 
         if (tower.type == TowerType::PilgrimBarricade) {
             int bestIndex = -1;
-            float bestDist = tower.range;
+            float bestDist = effectiveRange;
             for (int i = 0; i < (int)enemies.size(); ++i) {
                 if (enemies[i].hp <= 0) continue;
                 float dist = DistanceXZ(tower.pos, enemies[i].pos);
@@ -576,19 +1089,32 @@ void Game::UpdateTowers(float dt) {
             if (bestIndex >= 0) {
                 Enemy& target = enemies[bestIndex];
                 int before = target.hp;
-                target.hp -= tower.damage;
+                target.hp -= effectiveDamage;
                 target.hitFlash = 0.12f;
-                target.slowTimer = std::max(target.slowTimer, 0.7f + 0.25f * (float)tower.level);
+                target.slowTimer = std::max(target.slowTimer, 0.8f + 0.25f * (float)tower.level + (blessed ? 0.35f : 0.0f));
                 tower.cooldown = tower.maxCooldown;
 
                 ShotFx fx{};
                 fx.start = { tower.pos.x, 0.25f, tower.pos.z };
                 fx.end = { target.pos.x, target.pos.y * 0.55f, target.pos.z };
                 fx.life = 0.12f;
-                fx.color = { 162, 102, 76, 255 };
+                fx.color = blessed ? Color{ 228, 190, 132, 255 } : Color{ 162, 102, 76, 255 };
                 shots.push_back(fx);
 
                 if (before > 0 && target.hp <= 0) RegisterEnemyKill(target);
+
+                if (tower.level >= 2 || blessed) {
+                    int splashDamage = std::max(1, effectiveDamage / 2);
+                    for (int i = 0; i < (int)enemies.size(); ++i) {
+                        if (i == bestIndex || enemies[i].hp <= 0) continue;
+                        if (DistanceXZ(target.pos, enemies[i].pos) <= 2.4f) {
+                            int splashBefore = enemies[i].hp;
+                            enemies[i].hp -= splashDamage;
+                            enemies[i].hitFlash = 0.08f;
+                            if (splashBefore > 0 && enemies[i].hp <= 0) RegisterEnemyKill(enemies[i]);
+                        }
+                    }
+                }
             }
             continue;
         }
@@ -598,7 +1124,7 @@ void Game::UpdateTowers(float dt) {
         for (int i = 0; i < (int)enemies.size(); ++i) {
             if (enemies[i].hp <= 0) continue;
             float dist = DistanceXZ(tower.pos, enemies[i].pos);
-            if (dist > tower.range) continue;
+            if (dist > effectiveRange) continue;
 
             float score = 0.0f;
             score += enemies[i].pastGate ? 1200.0f : 0.0f;
@@ -606,6 +1132,7 @@ void Game::UpdateTowers(float dt) {
             score += (enemies[i].type == EnemyType::ProcessionBreaker) ? 40.0f : 0.0f;
             score += (enemies[i].type == EnemyType::BannerKnight) ? 16.0f : 0.0f;
             score += (enemies[i].type == EnemyType::GraveBrute) ? 10.0f : 0.0f;
+            score += enemies[i].elite ? 28.0f : 0.0f;
             score -= dist;
             if (score > bestScore) { bestScore = score; bestIndex = i; }
         }
@@ -613,19 +1140,77 @@ void Game::UpdateTowers(float dt) {
         if (bestIndex >= 0) {
             Enemy& target = enemies[bestIndex];
             int before = target.hp;
-            target.hp -= tower.damage;
+            target.hp -= effectiveDamage;
             target.hitFlash = 0.12f;
-            if (tower.type == TowerType::ReliquarySpire) target.slowTimer = std::max(target.slowTimer, 1.5f + 0.25f * (float)tower.level);
+            if (tower.type == TowerType::ReliquarySpire) {
+                target.slowTimer = std::max(target.slowTimer, 1.5f + 0.25f * (float)tower.level + (blessed ? 0.35f : 0.0f));
+            }
             tower.cooldown = tower.maxCooldown;
 
             ShotFx fx{};
             fx.start = { tower.pos.x, tower.pos.y + 1.8f, tower.pos.z };
             fx.end = { target.pos.x, target.pos.y + 0.4f, target.pos.z };
-            fx.life = (tower.type == TowerType::ReliquarySpire) ? 0.15f : 0.10f;
-            fx.color = tower.color;
+            fx.life = (tower.type == TowerType::ReliquarySpire) ? 0.17f : 0.10f;
+            fx.color = blessed ? Color{ 248, 222, 156, 255 } : tower.color;
             shots.push_back(fx);
 
             if (before > 0 && target.hp <= 0) RegisterEnemyKill(target);
+
+            if (tower.type == TowerType::WatchbowNest && tower.level >= 3) {
+                int secondIndex = -1;
+                float secondScore = -10000.0f;
+                for (int i = 0; i < (int)enemies.size(); ++i) {
+                    if (i == bestIndex || enemies[i].hp <= 0) continue;
+                    float dist = DistanceXZ(tower.pos, enemies[i].pos);
+                    if (dist > effectiveRange) continue;
+                    float score = (float)enemies[i].pathIndex * 12.0f - dist;
+                    if (score > secondScore) {
+                        secondScore = score;
+                        secondIndex = i;
+                    }
+                }
+                if (secondIndex >= 0) {
+                    int chainDamage = std::max(1, (effectiveDamage * 3) / 5);
+                    Enemy& extra = enemies[secondIndex];
+                    int extraBefore = extra.hp;
+                    extra.hp -= chainDamage;
+                    extra.hitFlash = 0.10f;
+                    ShotFx extraFx{};
+                    extraFx.start = { tower.pos.x, tower.pos.y + 1.8f, tower.pos.z };
+                    extraFx.end = { extra.pos.x, extra.pos.y + 0.4f, extra.pos.z };
+                    extraFx.life = 0.08f;
+                    extraFx.color = blessed ? Color{ 255, 236, 188, 255 } : Color{ 218, 198, 132, 255 };
+                    shots.push_back(extraFx);
+                    if (extraBefore > 0 && extra.hp <= 0) RegisterEnemyKill(extra);
+                }
+            }
+            else if (tower.type == TowerType::ReliquarySpire && tower.level >= 2) {
+                int secondIndex = -1;
+                float secondDist = 99999.0f;
+                for (int i = 0; i < (int)enemies.size(); ++i) {
+                    if (i == bestIndex || enemies[i].hp <= 0) continue;
+                    float dist = DistanceXZ(target.pos, enemies[i].pos);
+                    if (dist <= 4.2f && dist < secondDist) {
+                        secondDist = dist;
+                        secondIndex = i;
+                    }
+                }
+                if (secondIndex >= 0) {
+                    int chainDamage = std::max(1, effectiveDamage / 2 + tower.level);
+                    Enemy& extra = enemies[secondIndex];
+                    int extraBefore = extra.hp;
+                    extra.hp -= chainDamage;
+                    extra.hitFlash = 0.10f;
+                    extra.slowTimer = std::max(extra.slowTimer, 0.9f + 0.2f * (float)tower.level);
+                    ShotFx extraFx{};
+                    extraFx.start = { target.pos.x, target.pos.y + 0.5f, target.pos.z };
+                    extraFx.end = { extra.pos.x, extra.pos.y + 0.4f, extra.pos.z };
+                    extraFx.life = 0.12f;
+                    extraFx.color = blessed ? Color{ 224, 244, 255, 255 } : Color{ 122, 170, 236, 255 };
+                    shots.push_back(extraFx);
+                    if (extraBefore > 0 && extra.hp <= 0) RegisterEnemyKill(extra);
+                }
+            }
         }
     }
 }
@@ -644,10 +1229,54 @@ void Game::UpdateDeathFx(float dt) {
     deathFx.erase(std::remove_if(deathFx.begin(), deathFx.end(), [](const DeathFx& fx) { return fx.life <= 0.0f; }), deathFx.end());
 }
 
+void Game::TriggerSanctumPulse() {
+    if (state != PlayState::BattlePhase) return;
+
+    int consecrated = GetConsecratedWaystoneCount();
+    if (consecrated < 2 || fortress.coreHp <= 0) return;
+
+    Vector3 corePos = grid.CellCenter(fortress.coreCell.x, fortress.coreCell.y);
+    corePos.y = 0.8f;
+
+    float radius = 18.0f + consecrated * 3.4f;
+    int damage = 2 + consecrated + legacy.hymnRank;
+    int harmed = 0;
+    int slain = 0;
+
+    sanctumPulseVisual = 1.30f;
+    if (stormFlash < 0.16f) stormFlash = 0.16f;
+
+    for (Enemy& enemy : enemies) {
+        if (enemy.hp <= 0) continue;
+        if (DistanceXZ(corePos, enemy.pos) <= radius) {
+            int before = enemy.hp;
+            enemy.hp -= damage;
+            enemy.hitFlash = 0.06f;
+            enemy.slowTimer = std::max(enemy.slowTimer, 1.05f + 0.15f * (float)consecrated);
+            harmed++;
+            if (before > 0 && enemy.hp <= 0) {
+                RegisterEnemyKill(enemy);
+                slain++;
+            }
+        }
+    }
+
+    GainFervor(3 + consecrated + legacy.hymnRank);
+    if (slain > 0) announcement = TextFormat("SANCTUM BELL RESOUNDS // %d HERETICS BROKEN", slain);
+    else if (harmed > 0) announcement = "SANCTUM BELL RESOUNDS";
+    else announcement = "THE SANCTUM GATHERS LIGHT";
+    announcementTimer = harmed > 0 ? 0.9f : 0.7f;
+}
+
 void Game::TryPlaceTower() {
     if (!hoveredValid || !grid.InBounds(hoveredCell.x, hoveredCell.y)) return;
 
     GridTile& tile = grid.At(hoveredCell.x, hoveredCell.y);
+    if (FindWaystoneIndexAtCell(hoveredCell.x, hoveredCell.y) >= 0) {
+        announcement = "WAYSTONE CANNOT BE BUILT OVER";
+        announcementTimer = 1.1f;
+        return;
+    }
     if (tile.kind != TileKind::Buildable || tile.occupied || hoveredTowerIndex >= 0) {
         announcement = "CANNOT BUILD THERE";
         announcementTimer = 1.1f;
@@ -664,6 +1293,8 @@ void Game::TryPlaceTower() {
     gold -= tower.goldCost;
     iron -= tower.ironCost;
     ember -= tower.emberCost;
+    SaveSuspendedRun();
+    hasSuspendedChronicle = true;
     announcement = std::string(BuildChoiceLabel(buildChoice)) + " RAISED";
     announcementTimer = 1.3f;
 }
@@ -694,6 +1325,8 @@ void Game::TryUpgradeTower() {
     ember -= emberCost;
     tower.level++;
     ApplyTowerStats(tower);
+    SaveSuspendedRun();
+    hasSuspendedChronicle = true;
     announcement = TextFormat("%s UPGRADED TO LVL %d", TowerLabel(tower.type), tower.level);
     announcementTimer = 1.4f;
 }
@@ -712,13 +1345,58 @@ void Game::TrySellTower() {
     if (grid.InBounds(tower.gridX, tower.gridY)) grid.At(tower.gridX, tower.gridY).occupied = false;
     towers.erase(towers.begin() + hoveredTowerIndex);
     hoveredTowerIndex = -1;
+    SaveSuspendedRun();
+    hasSuspendedChronicle = true;
     announcement = "DEFENSE DISMANTLED";
     announcementTimer = 1.2f;
+}
+
+void Game::TryConsecrateWaystone() {
+    if (!hoveredValid) {
+        announcement = "HOVER A WAYSTONE";
+        announcementTimer = 1.0f;
+        return;
+    }
+
+    int index = FindWaystoneIndexAtCell(hoveredCell.x, hoveredCell.y);
+    if (index < 0) {
+        announcement = "HOVER A WAYSTONE";
+        announcementTimer = 1.0f;
+        return;
+    }
+
+    WaystoneSite& stone = waystones[index];
+    if (stone.consecrated) {
+        announcement = "WAYSTONE ALREADY CONSECRATED";
+        announcementTimer = 1.0f;
+        return;
+    }
+
+    const int ironCost = 8;
+    const int emberCost = 14;
+    if (iron < ironCost || ember < emberCost) {
+        announcement = "NEED 8 IRON AND 14 EMBER";
+        announcementTimer = 1.0f;
+        return;
+    }
+
+    iron -= ironCost;
+    ember -= emberCost;
+    stone.consecrated = true;
+    legacy.totalWaystonesConsecrated++;
+    SaveLegacyProfile();
+    fervor += 20 + legacy.hymnRank * 2;
+    if (fervor > fervorMax) fervor = fervorMax;
+    SaveSuspendedRun();
+    hasSuspendedChronicle = true;
+    announcement = "WAYSTONE CONSECRATED";
+    announcementTimer = 1.4f;
 }
 
 void Game::DamageGate(int amount) {
     fortress.gateHp -= amount;
     if (fortress.gateHp < 0) fortress.gateHp = 0;
+    if (stormFlash < (amount >= 20 ? 0.28f : 0.10f)) stormFlash = (amount >= 20 ? 0.28f : 0.10f);
     announcement = TextFormat("FRONT GATE STRUCK // %d HP", fortress.gateHp);
     announcementTimer = 0.75f;
 }
@@ -726,6 +1404,7 @@ void Game::DamageGate(int amount) {
 void Game::DamageCore(int amount) {
     fortress.coreHp -= amount;
     if (fortress.coreHp < 0) fortress.coreHp = 0;
+    if (stormFlash < 0.34f) stormFlash = 0.34f;
     announcement = TextFormat("HOLY CORE STRUCK // %d HP", fortress.coreHp);
     announcementTimer = 1.0f;
     if (fortress.coreHp <= 0) {
@@ -748,7 +1427,9 @@ void Game::TriggerWarHymn() {
     }
 
     fervor = 0;
-    hymnTimer = 6.0f;
+    hymnTimer = GetWarHymnDuration();
+    sanctumPulseVisual = std::max(sanctumPulseVisual, 0.34f);
+    if (stormFlash < 0.18f) stormFlash = 0.18f;
     announcement = "WAR HYMN AWAKENED";
     announcementTimer = 1.6f;
 }
@@ -756,26 +1437,35 @@ void Game::TriggerWarHymn() {
 void Game::RegisterEnemyKill(const Enemy& enemy) {
     int goldReward = 4;
     int emberReward = 0;
-    int fervorReward = 8;
+    int fervorReward = 8 + legacy.hymnRank;
 
     if (enemy.type == EnemyType::ProcessionBreaker) {
         goldReward = 36;
-        emberReward = 6;
-        fervorReward = 36;
+        emberReward = 6 + legacy.emberkeepRank;
+        fervorReward = 36 + legacy.hymnRank * 2;
+        legacy.breakersSlain++;
+        AwardLegacyAsh(6 + wave.number / 2);
         if (fortress.gateHp > 0) {
-            fortress.gateHp += 10;
+            fortress.gateHp += 10 + legacy.rampartRank * 2;
             if (fortress.gateHp > fortress.gateMaxHp) fortress.gateHp = fortress.gateMaxHp;
         }
     }
     else if (enemy.type == EnemyType::BannerKnight) {
         goldReward = 12;
-        emberReward = 2;
-        fervorReward = 18;
+        emberReward = 2 + legacy.emberkeepRank / 2;
+        fervorReward = 18 + legacy.hymnRank;
     }
     else if (enemy.type == EnemyType::GraveBrute) {
         goldReward = 8;
-        emberReward = 1;
-        fervorReward = 14;
+        emberReward = 1 + legacy.emberkeepRank / 2;
+        fervorReward = 14 + legacy.hymnRank;
+    }
+
+    if (enemy.elite) {
+        goldReward += 8 + wave.number / 3;
+        emberReward += 1 + legacy.emberkeepRank / 2;
+        fervorReward += 10 + legacy.hymnRank;
+        AwardLegacyAsh(3 + wave.number / 4);
     }
 
     gold += goldReward;
@@ -786,26 +1476,29 @@ void Game::RegisterEnemyKill(const Enemy& enemy) {
     if (enemy.type == EnemyType::GraveBrute) burstColor = { 120, 92, 150, 255 };
     if (enemy.type == EnemyType::BannerKnight) burstColor = { 188, 154, 92, 255 };
     if (enemy.type == EnemyType::ProcessionBreaker) burstColor = { 222, 94, 94, 255 };
+    if (enemy.elite) burstColor = Tint(burstColor, 1.28f);
 
     int pieces = 5;
     if (enemy.type == EnemyType::GraveBrute) pieces = 7;
     if (enemy.type == EnemyType::ProcessionBreaker) pieces = 12;
+    if (enemy.elite) pieces += 4;
 
     for (int i = 0; i < pieces; ++i) {
         float angle = ((float)i / (float)pieces) * 6.2831853f;
-        float speed = 1.2f + 0.22f * (float)i;
+        float speed = 1.2f + 0.22f * (float)i + (enemy.elite ? 0.25f : 0.0f);
         DeathFx fx{};
         fx.pos = { enemy.pos.x, enemy.pos.y + 0.25f, enemy.pos.z };
         fx.vel = { std::cos(angle) * speed, 1.2f + 0.08f * (float)i, std::sin(angle) * speed };
         fx.life = 0.55f + 0.04f * (float)i;
         fx.maxLife = fx.life;
         fx.size = (enemy.type == EnemyType::ProcessionBreaker) ? 0.22f : 0.14f;
+        if (enemy.elite) fx.size += 0.05f;
         fx.color = burstColor;
         deathFx.push_back(fx);
     }
 
     if (enemy.type == EnemyType::ProcessionBreaker) {
-        announcement = "THE BREAKER HAS FALLEN";
+        announcement = enemy.elite ? "THE ELITE BREAKER HAS FALLEN" : "THE BREAKER HAS FALLEN";
         announcementTimer = 1.8f;
     }
 }
@@ -828,6 +1521,24 @@ int Game::FindTowerIndexAtCell(int x, int y) const {
         if (towers[i].gridX == x && towers[i].gridY == y) return i;
     }
     return -1;
+}
+
+int Game::FindWaystoneIndexAtCell(int x, int y) const {
+    for (int i = 0; i < (int)waystones.size(); ++i) {
+        if (waystones[i].cell.x == x && waystones[i].cell.y == y) return i;
+    }
+    return -1;
+}
+
+bool Game::IsTowerBlessed(const Tower& tower) const {
+    for (const WaystoneSite& stone : waystones) {
+        if (!stone.consecrated) continue;
+        Vector3 center = grid.CellCenter(stone.cell.x, stone.cell.y);
+        if (DistanceXZ(center, tower.pos) <= grid.cellSize * 3.25f) {
+            return true;
+        }
+    }
+    return false;
 }
 
 Tower Game::MakeTower(BuildChoice choice, int cellX, int cellY) const {
@@ -889,6 +1600,8 @@ void Game::ApplyTowerStats(Tower& tower) const {
         tower.color = { 194, 172, 118, 255 };
     }
 
+    tower.damage += legacy.arsenalRank;
+    tower.range += 0.18f * (float)legacy.arsenalRank;
     if (tower.cooldown > tower.maxCooldown) tower.cooldown = tower.maxCooldown;
 }
 
@@ -952,6 +1665,18 @@ int Game::GetTowerSellIronRefund(const Tower& tower) const {
 
 int Game::GetTowerSellEmberRefund(const Tower& tower) const {
     return tower.emberCost / 2 + ((tower.emberCost > 0) ? (tower.level - 1) * 2 : 0);
+}
+
+int Game::GetConsecratedWaystoneCount() const {
+    int count = 0;
+    for (const WaystoneSite& stone : waystones) {
+        if (stone.consecrated) count++;
+    }
+    return count;
+}
+
+float Game::GetWarHymnDuration() const {
+    return 6.0f + 0.9f * (float)legacy.hymnRank;
 }
 
 void Game::Draw() const {
@@ -1034,26 +1759,78 @@ void Game::DrawTiles() const {
 
 void Game::DrawEnvironment() const {
     float cs = grid.cellSize;
+    Color borderColor = stormFlash > 0.08f ? Color{ 52, 60, 76, 255 } : Color{ 30, 34, 40, 255 };
 
     for (int x = -1; x <= grid.width; ++x) {
         float wx = grid.origin.x + x * cs + cs * 0.5f;
-        DrawCube({ wx, 2.5f, grid.origin.z - cs * 0.55f }, cs * 1.05f, 5.0f, cs * 1.2f, { 30, 34, 40, 255 });
-        DrawCube({ wx, 2.5f, grid.origin.z + grid.height * cs + cs * 0.55f }, cs * 1.05f, 5.0f, cs * 1.2f, { 30, 34, 40, 255 });
+        DrawCube({ wx, 2.8f, grid.origin.z - cs * 0.55f }, cs * 1.05f, 5.6f, cs * 1.2f, borderColor);
+        DrawCube({ wx, 2.8f, grid.origin.z + grid.height * cs + cs * 0.55f }, cs * 1.05f, 5.6f, cs * 1.2f, borderColor);
     }
     for (int y = 0; y < grid.height; ++y) {
         float wz = grid.origin.z + y * cs + cs * 0.5f;
-        DrawCube({ grid.origin.x - cs * 0.55f, 2.5f, wz }, cs * 1.2f, 5.0f, cs * 1.05f, { 30, 34, 40, 255 });
-        DrawCube({ grid.origin.x + grid.width * cs + cs * 0.55f, 2.5f, wz }, cs * 1.2f, 5.0f, cs * 1.05f, { 30, 34, 40, 255 });
+        DrawCube({ grid.origin.x - cs * 0.55f, 2.8f, wz }, cs * 1.2f, 5.6f, cs * 1.05f, borderColor);
+        DrawCube({ grid.origin.x + grid.width * cs + cs * 0.55f, 2.8f, wz }, cs * 1.2f, 5.6f, cs * 1.05f, borderColor);
     }
 
-    for (int i = 0; i < 22; ++i) {
+    auto drawRoadArch = [&](int laneIndex, int cellX, int cellY, Color cloth) {
+        if (!grid.InBounds(cellX, cellY)) return;
+        bool omen = (laneIndex == omenLane);
+        Vector3 c = grid.CellCenter(cellX, cellY);
+        float h = grid.At(cellX, cellY).height;
+        Color archStone = omen ? Color{ 126, 112, 116, 255 } : Color{ 96, 100, 110, 255 };
+        Color banner = omen ? Color{ 176, 70, 66, 255 } : cloth;
+        DrawCube({ c.x - 1.10f, h + 1.50f, c.z }, 0.34f, 2.8f, 0.34f, archStone);
+        DrawCube({ c.x + 1.10f, h + 1.50f, c.z }, 0.34f, 2.8f, 0.34f, archStone);
+        DrawCube({ c.x, h + 2.80f, c.z }, 2.50f, 0.30f, 0.42f, Tint(archStone, 1.14f));
+        DrawCube({ c.x + 0.12f, h + 2.25f, c.z }, 0.12f, 0.90f, 1.70f, banner);
+        if (omen) {
+            float beacon = 0.18f + 0.08f * std::sin(worldTime * 5.2f + (float)laneIndex);
+            DrawSphere({ c.x, h + 3.28f + beacon, c.z }, 0.22f + beacon * 0.55f, { 255, 164, 132, 255 });
+        }
+        };
+
+    drawRoadArch(0, 10, 5, { 124, 42, 42, 255 });
+    drawRoadArch(1, 10, 16, { 124, 42, 42, 255 });
+    drawRoadArch(2, 10, 28, { 124, 42, 42, 255 });
+    drawRoadArch(1, 28, 16, { 176, 134, 72, 255 });
+
+    for (int i = 0; i < 34; ++i) {
         float orbit = worldTime * (0.26f + 0.02f * (float)i) + (float)i;
         Vector3 mote = {
             grid.origin.x + 4.0f + std::fmod(orbit * 5.6f + (float)(i * 7), grid.width * cs - 8.0f),
-            1.6f + 0.6f * std::sin(orbit * 1.8f),
+            1.4f + 0.7f * std::sin(orbit * 1.8f),
             grid.origin.z + 3.0f + std::fmod(orbit * 3.8f + (float)(i * 5), grid.height * cs - 6.0f)
         };
-        DrawSphere(mote, 0.08f, { 74, 82, 94, 160 });
+        Color moteColor = (stormFlash > 0.10f) ? Color{ 150, 166, 198, 180 } : Color{ 74, 82, 94, 160 };
+        DrawSphere(mote, 0.08f + 0.02f * std::sin(orbit * 2.2f), moteColor);
+    }
+
+    if (stormFlash > 0.04f) {
+        float lx[] = { grid.origin.x + 8.0f, grid.origin.x + 24.0f, grid.origin.x + 52.0f, grid.origin.x + 76.0f };
+        float lz[] = { grid.origin.z + 6.0f, grid.origin.z + 56.0f, grid.origin.z + 18.0f, grid.origin.z + 70.0f };
+        for (int i = 0; i < 4; ++i) {
+            DrawCube({ lx[i], 8.8f, lz[i] }, 0.18f, 17.5f, 0.18f, Fade({ 214, 228, 255, 255 }, stormFlash * 0.65f));
+            DrawSphere({ lx[i], 17.5f, lz[i] }, 0.34f, Fade({ 236, 242, 255, 255 }, stormFlash * 0.55f));
+        }
+    }
+
+    for (const WaystoneSite& stone : waystones) {
+        Vector3 center = grid.CellCenter(stone.cell.x, stone.cell.y);
+        float ground = grid.At(stone.cell.x, stone.cell.y).height;
+        Color base = stone.consecrated ? Color{ 166, 156, 126, 255 } : Color{ 92, 96, 102, 255 };
+        Color glow = stone.consecrated ? Color{ 248, 214, 138, 255 } : Color{ 118, 132, 150, 255 };
+        float pulse = stone.consecrated ? (0.12f * std::sin(worldTime * 3.0f + (float)stone.cell.x) + 0.12f) : 0.0f;
+
+        DrawCube({ center.x, ground + 0.30f, center.z }, 1.10f, 0.50f, 1.10f, { 72, 76, 84, 255 });
+        DrawCube({ center.x, ground + 1.18f, center.z }, 0.46f, 1.40f, 0.46f, base);
+        DrawCube({ center.x, ground + 2.06f, center.z }, 0.74f, 0.34f, 0.74f, base);
+        DrawSphere({ center.x, ground + 2.56f + pulse, center.z }, 0.22f + pulse * 0.28f, glow);
+        if (stone.consecrated) {
+            DrawCircle3D({ center.x, ground + 0.06f, center.z }, 4.6f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(glow, 0.12f));
+            if (sanctumPulseVisual > 0.0f) {
+                DrawCircle3D({ center.x, ground + 0.08f, center.z }, 4.8f + (1.3f - sanctumPulseVisual) * 3.0f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(glow, 0.14f * sanctumPulseVisual));
+            }
+        }
     }
 
     for (const Prop& prop : props) {
@@ -1102,7 +1879,7 @@ void Game::DrawFortress() const {
     Vector3 mid = { (gate.x + core.x) * 0.5f + 1.6f, 0.0f, core.z };
 
     DrawCube({ mid.x, 0.75f, mid.z }, 24.0f, 1.5f, 16.0f, { 70, 76, 84, 255 });
-    DrawCube({ mid.x + 1.8f, 2.9f, mid.z }, 16.0f, 5.8f, 12.6f, { 144, 148, 156, 255 });
+    DrawCube({ mid.x + 1.8f, 2.9f, mid.z }, 16.0f, 5.8f, 12.6f, stormFlash > 0.06f ? Color{ 154, 160, 176, 255 } : Color{ 144, 148, 156, 255 });
     DrawCubeWires({ mid.x + 1.8f, 2.9f, mid.z }, 16.0f, 5.8f, 12.6f, { 60, 64, 72, 255 });
 
     DrawCube({ mid.x - 6.2f, 3.0f, mid.z }, 0.9f, 2.4f, 11.0f, { 118, 124, 134, 255 });
@@ -1125,6 +1902,15 @@ void Game::DrawFortress() const {
     DrawCube({ gate.x + 3.2f, 2.8f, gate.z + 2.6f }, 0.9f, 5.8f, 0.9f, { 138, 144, 152, 255 });
     DrawCube({ gate.x + 4.0f, 4.2f, gate.z }, 2.8f, 2.4f, 6.8f, { 132, 138, 148, 255 });
 
+    Vector3 lanterns[] = {
+        { gate.x + 2.8f, 4.2f, gate.z - 3.2f }, { gate.x + 2.8f, 4.2f, gate.z + 3.2f },
+        { core.x + 2.0f, 6.8f, core.z - 2.6f }, { core.x + 2.0f, 6.8f, core.z + 2.6f }
+    };
+    for (const Vector3& p : lanterns) {
+        float flicker = 0.10f + 0.05f * std::sin(worldTime * 5.0f + p.x);
+        DrawSphere({ p.x, p.y + flicker, p.z }, 0.20f + flicker * 0.45f, { 255, 194, 110, 255 });
+    }
+
     Vector3 wagonA = { core.x + 5.8f, 1.1f, core.z - 8.0f };
     Vector3 wagonB = { core.x + 5.8f, 1.1f, core.z + 8.0f };
     Vector3 wagonC = { core.x - 5.6f, 1.1f, core.z };
@@ -1137,107 +1923,147 @@ void Game::DrawFortress() const {
 
     float wheelOffsetsA[2] = { -1.20f, 1.20f };
     for (float oz : wheelOffsetsA) {
-        DrawCylinder({ wagonA.x - 1.2f, 0.38f, wagonA.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
-        DrawCylinder({ wagonA.x + 1.2f, 0.38f, wagonA.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
-        DrawCylinder({ wagonB.x - 1.2f, 0.38f, wagonB.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
-        DrawCylinder({ wagonB.x + 1.2f, 0.38f, wagonB.z + oz }, 0.42f, 0.42f, 0.12f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonA.x - 1.2f, 0.38f, wagonA.z + oz }, 0.42f, 0.42f, 0.10f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonA.x + 1.2f, 0.38f, wagonA.z + oz }, 0.42f, 0.42f, 0.10f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonB.x - 1.2f, 0.38f, wagonB.z + oz }, 0.42f, 0.42f, 0.10f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonB.x + 1.2f, 0.38f, wagonB.z + oz }, 0.42f, 0.42f, 0.10f, 10, { 78, 60, 44, 255 });
     }
     float wheelOffsetsC[2] = { -1.05f, 1.05f };
     for (float ox : wheelOffsetsC) {
-        DrawCylinder({ wagonC.x + ox, 0.38f, wagonC.z - 1.12f }, 0.40f, 0.40f, 0.12f, 10, { 78, 60, 44, 255 });
-        DrawCylinder({ wagonC.x + ox, 0.38f, wagonC.z + 1.12f }, 0.40f, 0.40f, 0.12f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonC.x + ox, 0.38f, wagonC.z - 1.12f }, 0.40f, 0.40f, 0.10f, 10, { 78, 60, 44, 255 });
+        DrawCylinder({ wagonC.x + ox, 0.38f, wagonC.z + 1.12f }, 0.40f, 0.40f, 0.10f, 10, { 78, 60, 44, 255 });
     }
 
-    float glowPulse = 0.08f * std::sin(worldTime * 3.0f) + (hymnTimer > 0.0f ? 0.14f : 0.0f);
+    float glowPulse = 0.08f * std::sin(worldTime * 3.0f) + (hymnTimer > 0.0f ? 0.14f : 0.0f) + stormFlash * 0.12f;
     DrawSphere({ core.x + 2.0f, 7.1f + glowPulse, core.z }, 0.92f + glowPulse, { 236, 202, 116, 255 });
     DrawSphere({ core.x + 2.0f, 7.1f + glowPulse * 1.4f, core.z }, 0.46f + glowPulse * 0.7f, { 255, 240, 178, 255 });
+
+    if (sanctumPulseVisual > 0.0f) {
+        float radiusA = 4.0f + (1.30f - sanctumPulseVisual) * 12.0f;
+        float radiusB = 2.6f + (1.30f - sanctumPulseVisual) * 8.5f;
+        DrawCircle3D({ core.x + 2.0f, 0.18f, core.z }, radiusA, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade({ 242, 220, 156, 255 }, 0.22f * sanctumPulseVisual));
+        DrawCircle3D({ gate.x + 1.8f, 0.12f, gate.z }, radiusB, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade({ 212, 188, 132, 255 }, 0.18f * sanctumPulseVisual));
+    }
 }
 
 void Game::DrawTowers() const {
-    for (int i = 0; i < (int)towers.size(); ++i) {
-        const Tower& tower = towers[i];
+    auto drawTowerModel = [&](const Tower& tower, float alpha, bool blessed) {
+        auto FC = [&](Color c) { return Fade(c, alpha); };
         float levelLift = 0.14f * (float)(tower.level - 1);
 
-        DrawCylinder({ tower.pos.x, 0.10f, tower.pos.z }, 0.90f, 0.90f, 0.12f, 14, { 44, 48, 54, 140 });
+        DrawCylinder({ tower.pos.x, 0.10f, tower.pos.z }, 0.90f, 0.90f, 0.12f, 14, FC({ 44, 48, 54, 140 }));
+
+        if (blessed) {
+            DrawCircle3D({ tower.pos.x, 0.06f, tower.pos.z }, tower.range + 0.90f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade({ 248, 214, 138, 255 }, 0.06f * alpha));
+            DrawSphere({ tower.pos.x, 0.18f, tower.pos.z }, 0.10f, FC({ 248, 214, 138, 255 }));
+        }
 
         if (tower.type == TowerType::WatchbowNest) {
-            DrawCube({ tower.pos.x, 0.72f, tower.pos.z }, 1.20f, 1.25f, 1.20f, { 108, 86, 66, 255 });
-            DrawCube({ tower.pos.x, 1.70f + levelLift, tower.pos.z }, 0.82f, 0.74f + levelLift, 0.82f, { 166, 146, 112, 255 });
-            DrawCube({ tower.pos.x + 0.30f, 2.25f + levelLift, tower.pos.z }, 0.80f, 0.14f, 0.24f, { 184, 166, 120, 255 });
-            DrawCube({ tower.pos.x - 0.18f, 2.25f + levelLift, tower.pos.z }, 0.26f, 0.14f, 0.82f, { 184, 166, 120, 255 });
+            DrawCube({ tower.pos.x, 0.72f, tower.pos.z }, 1.20f, 1.25f, 1.20f, FC({ 108, 86, 66, 255 }));
+            DrawCube({ tower.pos.x, 1.70f + levelLift, tower.pos.z }, 0.82f, 0.74f + levelLift, 0.82f, FC({ 166, 146, 112, 255 }));
+            DrawCube({ tower.pos.x + 0.30f, 2.25f + levelLift, tower.pos.z }, 0.80f, 0.14f, 0.24f, FC({ 184, 166, 120, 255 }));
+            DrawCube({ tower.pos.x - 0.18f, 2.25f + levelLift, tower.pos.z }, 0.26f, 0.14f, 0.82f, FC({ 184, 166, 120, 255 }));
         }
         else if (tower.type == TowerType::CenserShrine) {
-            DrawCube({ tower.pos.x, 0.62f, tower.pos.z }, 1.20f, 1.02f, 1.20f, { 108, 92, 80, 255 });
-            DrawCylinder({ tower.pos.x, 1.58f, tower.pos.z }, 0.34f, 0.42f, 1.52f + levelLift, 10, { 166, 132, 88, 255 });
-            DrawSphere({ tower.pos.x, 2.58f + levelLift, tower.pos.z }, 0.34f + 0.06f * (float)(tower.level - 1), { 244, 166, 84, 255 });
-            if (hymnTimer > 0.0f) {
-                DrawSphere({ tower.pos.x, 2.88f + levelLift, tower.pos.z }, 0.16f, { 255, 228, 168, 220 });
+            DrawCube({ tower.pos.x, 0.62f, tower.pos.z }, 1.20f, 1.02f, 1.20f, FC({ 108, 92, 80, 255 }));
+            DrawCylinder({ tower.pos.x, 1.58f, tower.pos.z }, 0.34f, 0.42f, 1.52f + levelLift, 10, FC({ 166, 132, 88, 255 }));
+            DrawSphere({ tower.pos.x, 2.58f + levelLift, tower.pos.z }, 0.34f + 0.06f * (float)(tower.level - 1), FC(blessed ? Color{ 255, 218, 150, 255 } : Color{ 244, 166, 84, 255 }));
+            if (hymnTimer > 0.0f || blessed) {
+                DrawSphere({ tower.pos.x, 2.88f + levelLift, tower.pos.z }, 0.16f, FC({ 255, 228, 168, 220 }));
             }
         }
         else if (tower.type == TowerType::ReliquarySpire) {
-            DrawCube({ tower.pos.x, 0.62f, tower.pos.z }, 1.08f, 1.02f, 1.08f, { 86, 98, 122, 255 });
-            DrawCube({ tower.pos.x, 1.88f + levelLift, tower.pos.z }, 0.52f, 2.28f + levelLift, 0.52f, { 108, 126, 160, 255 });
-            DrawSphere({ tower.pos.x, 3.12f + levelLift, tower.pos.z }, 0.28f + 0.05f * (float)(tower.level - 1), { 122, 170, 236, 255 });
+            DrawCube({ tower.pos.x, 0.62f, tower.pos.z }, 1.08f, 1.02f, 1.08f, FC({ 86, 98, 122, 255 }));
+            DrawCube({ tower.pos.x, 1.88f + levelLift, tower.pos.z }, 0.52f, 2.28f + levelLift, 0.52f, FC({ 108, 126, 160, 255 }));
+            DrawSphere({ tower.pos.x, 3.12f + levelLift, tower.pos.z }, 0.28f + 0.05f * (float)(tower.level - 1), FC(blessed ? Color{ 194, 232, 255, 255 } : Color{ 122, 170, 236, 255 }));
             float orbit = worldTime * 2.4f;
-            DrawSphere({ tower.pos.x + 0.28f * std::sin(orbit), 2.76f + levelLift, tower.pos.z + 0.28f * std::cos(orbit) }, 0.10f, { 180, 214, 255, 255 });
+            DrawSphere({ tower.pos.x + 0.28f * std::sin(orbit), 2.76f + levelLift, tower.pos.z + 0.28f * std::cos(orbit) }, 0.10f, FC({ 180, 214, 255, 255 }));
         }
         else {
-            DrawCube({ tower.pos.x, 0.44f, tower.pos.z }, 1.34f, 0.74f, 0.58f, { 118, 88, 64, 255 });
-            DrawCube({ tower.pos.x, 0.64f, tower.pos.z - 0.28f }, 1.24f, 1.06f + levelLift, 0.14f, { 146, 104, 72, 255 });
-            DrawCube({ tower.pos.x, 0.64f, tower.pos.z + 0.28f }, 1.24f, 1.06f + levelLift, 0.14f, { 146, 104, 72, 255 });
-            DrawCube({ tower.pos.x - 0.42f, 0.54f, tower.pos.z }, 0.16f, 0.86f + levelLift, 0.48f, { 88, 64, 44, 255 });
-            DrawCube({ tower.pos.x + 0.42f, 0.54f, tower.pos.z }, 0.16f, 0.86f + levelLift, 0.48f, { 88, 64, 44, 255 });
+            DrawCube({ tower.pos.x, 0.44f, tower.pos.z }, 1.34f, 0.74f, 0.58f, FC({ 118, 88, 64, 255 }));
+            DrawCube({ tower.pos.x, 0.64f, tower.pos.z - 0.28f }, 1.24f, 1.06f + levelLift, 0.14f, FC({ 146, 104, 72, 255 }));
+            DrawCube({ tower.pos.x, 0.64f, tower.pos.z + 0.28f }, 1.24f, 1.06f + levelLift, 0.14f, FC({ 146, 104, 72, 255 }));
+            DrawCube({ tower.pos.x - 0.42f, 0.54f, tower.pos.z }, 0.16f, 0.86f + levelLift, 0.48f, FC({ 88, 64, 44, 255 }));
+            DrawCube({ tower.pos.x + 0.42f, 0.54f, tower.pos.z }, 0.16f, 0.86f + levelLift, 0.48f, FC({ 88, 64, 44, 255 }));
         }
+        };
+
+    for (int i = 0; i < (int)towers.size(); ++i) {
+        const Tower& tower = towers[i];
+        bool blessed = IsTowerBlessed(tower);
+        drawTowerModel(tower, 1.0f, blessed);
 
         if (state == PlayState::BuildPhase && hoveredTowerIndex == i) {
+            float previewRange = tower.range + (blessed ? 0.90f : 0.0f);
             for (int ring = 0; ring < tower.level; ++ring) {
-                DrawCircle3D({ tower.pos.x, 0.04f + 0.01f * (float)ring, tower.pos.z }, tower.range - 0.05f * (float)ring, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(tower.color, 0.18f));
+                DrawCircle3D({ tower.pos.x, 0.04f + 0.01f * (float)ring, tower.pos.z }, previewRange - 0.05f * (float)ring, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(blessed ? Color{ 248, 214, 138, 255 } : tower.color, blessed ? 0.22f : 0.18f));
             }
+        }
+    }
+
+    if (state == PlayState::BuildPhase && hoveredValid && hoveredTowerIndex < 0 && FindWaystoneIndexAtCell(hoveredCell.x, hoveredCell.y) < 0) {
+        const GridTile& tile = grid.At(hoveredCell.x, hoveredCell.y);
+        if (tile.kind == TileKind::Buildable && !tile.occupied) {
+            Tower preview = MakeTower(buildChoice, hoveredCell.x, hoveredCell.y);
+            bool blessed = IsTowerBlessed(preview);
+            drawTowerModel(preview, 0.46f, blessed);
+            float previewRange = preview.range + (blessed ? 0.90f : 0.0f);
+            DrawCircle3D({ preview.pos.x, 0.04f, preview.pos.z }, previewRange, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(blessed ? Color{ 248, 214, 138, 255 } : preview.color, 0.16f));
         }
     }
 }
 
 void Game::DrawEnemies() const {
     for (const Enemy& enemy : enemies) {
+        float scale = enemy.elite ? 1.16f : 1.0f;
         Color baseColor = { 170, 82, 76, 255 };
         if (enemy.type == EnemyType::GraveBrute) baseColor = { 110, 88, 138, 255 };
         else if (enemy.type == EnemyType::BannerKnight) baseColor = { 170, 146, 88, 255 };
         else if (enemy.type == EnemyType::ProcessionBreaker) baseColor = { 178, 72, 72, 255 };
+        if (enemy.laneIndex == omenLane && state == PlayState::BattlePhase) baseColor = Tint(baseColor, 1.12f);
         if (enemy.slowTimer > 0.0f) baseColor = Tint(baseColor, 1.10f);
+        if (enemy.elite) baseColor = Tint(baseColor, 1.22f);
         Color color = enemy.hitFlash > 0.0f ? WHITE : baseColor;
 
-        DrawCylinder({ enemy.pos.x, 0.08f, enemy.pos.z }, 0.60f, 0.60f, 0.08f, 12, { 40, 42, 48, 140 });
+        DrawCylinder({ enemy.pos.x, 0.08f, enemy.pos.z }, 0.60f * scale, 0.60f * scale, 0.08f, 12, enemy.elite ? Color{ 72, 56, 36, 180 } : Color{ 40, 42, 48, 140 });
 
         if (enemy.type == EnemyType::AshRaider) {
-            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 0.86f, 1.26f, 0.78f, color);
-            DrawSphere({ enemy.pos.x, enemy.pos.y + 0.84f, enemy.pos.z }, 0.24f, { 216, 188, 154, 255 });
-            DrawCube({ enemy.pos.x + 0.26f, enemy.pos.y + 0.30f, enemy.pos.z }, 0.18f, 0.80f, 0.18f, { 94, 72, 58, 255 });
+            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 0.86f * scale, 1.26f * scale, 0.78f * scale, color);
+            DrawSphere({ enemy.pos.x, enemy.pos.y + 0.84f * scale, enemy.pos.z }, 0.24f * scale, { 216, 188, 154, 255 });
+            DrawCube({ enemy.pos.x + 0.26f * scale, enemy.pos.y + 0.30f * scale, enemy.pos.z }, 0.18f * scale, 0.80f * scale, 0.18f * scale, { 94, 72, 58, 255 });
         }
         else if (enemy.type == EnemyType::GraveBrute) {
-            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 1.18f, 1.72f, 1.02f, color);
-            DrawSphere({ enemy.pos.x, enemy.pos.y + 1.02f, enemy.pos.z }, 0.28f, { 204, 188, 194, 255 });
-            DrawCube({ enemy.pos.x + 0.44f, enemy.pos.y + 0.34f, enemy.pos.z }, 0.22f, 1.12f, 0.22f, { 70, 64, 78, 255 });
-            DrawCube({ enemy.pos.x + 0.44f, enemy.pos.y + 0.82f, enemy.pos.z }, 0.52f, 0.24f, 0.24f, { 116, 110, 130, 255 });
+            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 1.18f * scale, 1.72f * scale, 1.02f * scale, color);
+            DrawSphere({ enemy.pos.x, enemy.pos.y + 1.02f * scale, enemy.pos.z }, 0.28f * scale, { 204, 188, 194, 255 });
+            DrawCube({ enemy.pos.x + 0.44f * scale, enemy.pos.y + 0.34f * scale, enemy.pos.z }, 0.22f * scale, 1.12f * scale, 0.22f * scale, { 70, 64, 78, 255 });
+            DrawCube({ enemy.pos.x + 0.44f * scale, enemy.pos.y + 0.82f * scale, enemy.pos.z }, 0.52f * scale, 0.24f * scale, 0.24f * scale, { 116, 110, 130, 255 });
         }
         else if (enemy.type == EnemyType::BannerKnight) {
-            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 0.96f, 1.50f, 0.86f, color);
-            DrawSphere({ enemy.pos.x, enemy.pos.y + 0.98f, enemy.pos.z }, 0.25f, { 224, 206, 170, 255 });
-            DrawCube({ enemy.pos.x + 0.34f, enemy.pos.y + 0.64f, enemy.pos.z }, 0.12f, 1.30f, 0.12f, { 122, 122, 130, 255 });
-            DrawCube({ enemy.pos.x + 0.70f, enemy.pos.y + 1.10f, enemy.pos.z }, 0.58f, 0.54f, 0.10f, { 164, 122, 64, 255 });
+            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 0.96f * scale, 1.50f * scale, 0.86f * scale, color);
+            DrawSphere({ enemy.pos.x, enemy.pos.y + 0.98f * scale, enemy.pos.z }, 0.25f * scale, { 224, 206, 170, 255 });
+            DrawCube({ enemy.pos.x + 0.34f * scale, enemy.pos.y + 0.64f * scale, enemy.pos.z }, 0.12f * scale, 1.30f * scale, 0.12f * scale, { 122, 122, 130, 255 });
+            DrawCube({ enemy.pos.x + 0.70f * scale, enemy.pos.y + 1.10f * scale, enemy.pos.z }, 0.58f * scale, 0.54f * scale, 0.10f * scale, { 164, 122, 64, 255 });
         }
         else {
-            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 1.60f, 2.26f, 1.34f, color);
-            DrawSphere({ enemy.pos.x, enemy.pos.y + 1.26f, enemy.pos.z }, 0.34f, { 196, 172, 172, 255 });
-            DrawCube({ enemy.pos.x, enemy.pos.y + 1.42f, enemy.pos.z }, 1.22f, 0.36f, 1.22f, { 104, 46, 46, 255 });
-            DrawCube({ enemy.pos.x + 0.62f, enemy.pos.y + 0.42f, enemy.pos.z }, 0.24f, 1.30f, 0.24f, { 84, 64, 64, 255 });
-            DrawCube({ enemy.pos.x + 0.62f, enemy.pos.y + 1.00f, enemy.pos.z }, 0.74f, 0.30f, 0.30f, { 122, 84, 84, 255 });
+            DrawCube({ enemy.pos.x, enemy.pos.y, enemy.pos.z }, 1.60f * scale, 2.26f * scale, 1.34f * scale, color);
+            DrawSphere({ enemy.pos.x, enemy.pos.y + 1.26f * scale, enemy.pos.z }, 0.34f * scale, { 196, 172, 172, 255 });
+            DrawCube({ enemy.pos.x, enemy.pos.y + 1.42f * scale, enemy.pos.z }, 1.22f * scale, 0.36f * scale, 1.22f * scale, { 104, 46, 46, 255 });
+            DrawCube({ enemy.pos.x + 0.62f * scale, enemy.pos.y + 0.42f * scale, enemy.pos.z }, 0.24f * scale, 1.30f * scale, 0.24f * scale, { 84, 64, 64, 255 });
+            DrawCube({ enemy.pos.x + 0.62f * scale, enemy.pos.y + 1.00f * scale, enemy.pos.z }, 0.74f * scale, 0.30f * scale, 0.30f * scale, { 122, 84, 84, 255 });
+        }
+
+        if (enemy.elite) {
+            float orbit = 0.18f * std::sin(worldTime * 4.0f + enemy.pos.x);
+            DrawCircle3D({ enemy.pos.x, 0.10f, enemy.pos.z }, 0.82f * scale, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade({ 244, 214, 144, 255 }, 0.12f));
+            DrawSphere({ enemy.pos.x, enemy.pos.y + 1.46f * scale + orbit, enemy.pos.z }, 0.14f * scale, { 244, 214, 144, 255 });
         }
 
         float hpRatio = (float)enemy.hp / (float)enemy.maxHp;
         if (hpRatio < 0.0f) hpRatio = 0.0f;
-        float hpY = enemy.pos.y + ((enemy.type == EnemyType::ProcessionBreaker) ? 1.80f : (enemy.type == EnemyType::GraveBrute ? 1.30f : 1.12f));
-        DrawCube({ enemy.pos.x, hpY, enemy.pos.z }, 1.18f, 0.10f, 0.16f, { 40, 10, 10, 255 });
-        DrawCube({ enemy.pos.x - (1.18f * (1.0f - hpRatio)) * 0.5f, hpY + 0.01f, enemy.pos.z }, 1.18f * hpRatio, 0.06f, 0.12f, { 96, 220, 96, 255 });
+        float hpWidth = enemy.elite ? 1.42f : 1.18f;
+        float hpY = enemy.pos.y + ((enemy.type == EnemyType::ProcessionBreaker) ? 1.80f * scale : (enemy.type == EnemyType::GraveBrute ? 1.30f * scale : 1.12f * scale));
+        DrawCube({ enemy.pos.x, hpY, enemy.pos.z }, hpWidth, 0.10f, 0.16f, { 40, 10, 10, 255 });
+        DrawCube({ enemy.pos.x - (hpWidth * (1.0f - hpRatio)) * 0.5f, hpY + 0.01f, enemy.pos.z }, hpWidth * hpRatio, 0.06f, 0.12f, enemy.elite ? Color{ 240, 206, 116, 255 } : Color{ 96, 220, 96, 255 });
     }
 }
 
@@ -1251,39 +2077,61 @@ void Game::DrawEffects() const {
 }
 
 void Game::DrawUi() const {
-    DrawRectangle(22, 18, 760, 170, Fade(BLACK, 0.68f));
-    DrawRectangleLines(22, 18, 760, 170, { 188, 156, 96, 255 });
+    int consecratedWaystones = GetConsecratedWaystoneCount();
+    int hoveredWaystone = hoveredValid ? FindWaystoneIndexAtCell(hoveredCell.x, hoveredCell.y) : -1;
+
+    DrawRectangle(22, 18, 1010, 210, Fade(BLACK, 0.68f));
+    DrawRectangleLines(22, 18, 1010, 210, { 188, 156, 96, 255 });
     DrawText("THE LAST PROCESSION", 40, 30, 34, { 236, 228, 210, 255 });
-    DrawText("MEGA PROCESSION MAP", 40, 68, 20, { 196, 172, 118, 255 });
-    DrawText(TextFormat("WAVE %d", wave.number), 40, 96, 24, { 188, 156, 96, 255 });
-    DrawText(TextFormat("GOLD %d   IRON %d   EMBER %d", gold, iron, ember), 150, 96, 22, { 210, 214, 204, 255 });
-    DrawText(TextFormat("GATE %d / %d", fortress.gateHp, fortress.gateMaxHp), 40, 126, 22, fortress.gateHp > 0 ? Color{ 210, 176, 112, 255 } : Color{ 198, 76, 76, 255 });
-    DrawText(TextFormat("HOLY CORE %d / %d", fortress.coreHp, fortress.coreMaxHp), 240, 126, 22, fortress.coreHp > 30 ? Color{ 128, 196, 136, 255 } : Color{ 198, 76, 76, 255 });
-    DrawText(TextFormat("ZOOM %.1f", cameraZoom), 500, 96, 22, { 198, 208, 214, 255 });
-    DrawText(TextFormat("FERVOR %d / %d", fervor, fervorMax), 500, 126, 22, hymnTimer > 0.0f ? Color{ 250, 228, 164, 255 } : Color{ 168, 190, 216, 255 });
-    DrawText(TextFormat("BUILD %s", BuildChoiceLabel(buildChoice)), 40, 154, 18, buildChoice == BuildChoice::WatchbowNest ? Color{ 194, 172, 118, 255 } : (buildChoice == BuildChoice::CenserShrine ? Color{ 244, 166, 84, 255 } : (buildChoice == BuildChoice::ReliquarySpire ? Color{ 122, 170, 236, 255 } : Color{ 162, 102, 76, 255 })));
-    DrawText((wave.number % 5 == 0) ? "OMEN // BREAKER WAVE" : "OMEN // THREE-LANE ASSAULT", 500, 154, 18, (wave.number % 5 == 0) ? Color{ 206, 96, 96, 255 } : Color{ 168, 178, 188, 255 });
+    DrawText("BATCH 10 // STORMFRONT AND ELITE ASSAULTS", 40, 68, 20, { 196, 172, 118, 255 });
+    DrawText(TextFormat("WAVE %d", wave.number), 40, 100, 24, { 188, 156, 96, 255 });
+    DrawText(TextFormat("OMEN // %s", waveOmen.c_str()), 160, 100, 24, omenLane >= 0 ? Color{ 226, 136, 116, 255 } : Color{ 198, 208, 214, 255 });
+    DrawText(TextFormat("GOLD %d   IRON %d   EMBER %d", gold, iron, ember), 40, 132, 22, { 210, 214, 204, 255 });
+    DrawText(TextFormat("GATE %d / %d", fortress.gateHp, fortress.gateMaxHp), 330, 132, 22, fortress.gateHp > 0 ? Color{ 210, 176, 112, 255 } : Color{ 198, 76, 76, 255 });
+    DrawText(TextFormat("HOLY CORE %d / %d", fortress.coreHp, fortress.coreMaxHp), 520, 132, 22, fortress.coreHp > 30 ? Color{ 128, 196, 136, 255 } : Color{ 198, 76, 76, 255 });
+    DrawText(TextFormat("FERVOR %d / %d", fervor, fervorMax), 760, 132, 22, hymnTimer > 0.0f ? Color{ 250, 228, 164, 255 } : Color{ 168, 190, 216, 255 });
+    DrawText(TextFormat("ZOOM %.1f", cameraZoom), 40, 164, 22, { 198, 208, 214, 255 });
+    DrawText(TextFormat("WAYSTONES %d / %d", consecratedWaystones, (int)waystones.size()), 210, 164, 22, consecratedWaystones > 0 ? Color{ 244, 214, 144, 255 } : Color{ 160, 170, 180, 255 });
+    DrawText(TextFormat("LEGACY ASH %d   RUN ASH +%d", legacy.ash, legacyAshEarnedThisRun), 450, 164, 22, { 214, 196, 142, 255 });
+    DrawText(hasSuspendedChronicle ? "CHRONICLE READY // PRESS L TO RESTORE" : "NO CHRONICLE SAVED YET", 760, 164, 18, hasSuspendedChronicle ? Color{ 170, 198, 220, 255 } : Color{ 124, 132, 140, 255 });
+    if (state == PlayState::BattlePhase && consecratedWaystones >= 2) {
+        DrawText(TextFormat("SANCTUM BELL %.1fs", sanctumPulseTimer), 760, 188, 18, { 244, 214, 144, 255 });
+    }
+    else {
+        DrawText(TextFormat("WAR HYMN %.1fs", hymnTimer), 760, 188, 18, hymnTimer > 0.0f ? Color{ 248, 224, 160, 255 } : Color{ 132, 140, 152, 255 });
+    }
+
+    DrawRectangle(screenW - 420, 18, 398, 210, Fade(BLACK, 0.72f));
+    DrawRectangleLines(screenW - 420, 18, 398, 210, { 110, 126, 172, 255 });
+    DrawText("LEGACY ALTAR", screenW - 400, 34, 30, { 236, 228, 210, 255 });
+    DrawText(TextFormat("BEST WAVE %d   BREAKERS SLAIN %d", legacy.highestWave, legacy.breakersSlain), screenW - 400, 72, 18, { 198, 208, 214, 255 });
+    DrawText(TextFormat("TOTAL WAYSTONES %d   RUNS %d", legacy.totalWaystonesConsecrated, legacy.runsStarted), screenW - 400, 96, 18, { 198, 208, 214, 255 });
+    DrawText(TextFormat("5 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(0), legacy.rampartRank, GetLegacyUpgradeMaxRank(0), GetLegacyUpgradeCost(0)), screenW - 400, 126, 18, { 210, 176, 112, 255 });
+    DrawText(TextFormat("6 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(1), legacy.arsenalRank, GetLegacyUpgradeMaxRank(1), GetLegacyUpgradeCost(1)), screenW - 400, 148, 18, { 194, 172, 118, 255 });
+    DrawText(TextFormat("7 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(2), legacy.emberkeepRank, GetLegacyUpgradeMaxRank(2), GetLegacyUpgradeCost(2)), screenW - 400, 170, 18, { 244, 166, 84, 255 });
+    DrawText(TextFormat("8 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(3), legacy.hymnRank, GetLegacyUpgradeMaxRank(3), GetLegacyUpgradeCost(3)), screenW - 400, 192, 18, { 168, 190, 216, 255 });
 
     DrawRectangle(22, screenH - 146, screenW - 44, 124, Fade(BLACK, 0.72f));
     DrawRectangleLines(22, screenH - 146, screenW - 44, 124, { 110, 126, 172, 255 });
 
     if (state == PlayState::BuildPhase) {
-        DrawText("BUILD // 1 Bow  2 Censer  3 Spire  4 Barricade  U Upgrade  X Sell  H Repair Gate  J Consecrate Core", 40, screenH - 126, 24, { 228, 220, 208, 255 });
-        DrawText("Huge battlefield   3 long roads   Mouse Wheel zoom   WASD axis pan   SPACE begin siege", 40, screenH - 92, 22, { 190, 198, 188, 255 });
+        DrawText("BUILD // 1 Bow  2 Censer  3 Spire  4 Barricade  U Upgrade  X Sell  C Consecrate  H Gate  J Core  L Restore", 40, screenH - 126, 24, { 228, 220, 208, 255 });
+        DrawText("LEGACY // 5 Rampart  6 Arsenal  7 Ember  8 Hymnal // Next omen is already shown so you can prepare the defense", 40, screenH - 92, 22, { 190, 198, 188, 255 });
     }
     else if (state == PlayState::BattlePhase) {
-        int raiders = 0, brutes = 0, knights = 0, breakers = 0;
+        int raiders = 0, brutes = 0, knights = 0, breakers = 0, elites = 0;
         for (const Enemy& enemy : enemies) {
             if (enemy.type == EnemyType::AshRaider) raiders++;
             else if (enemy.type == EnemyType::GraveBrute) brutes++;
             else if (enemy.type == EnemyType::BannerKnight) knights++;
             else if (enemy.type == EnemyType::ProcessionBreaker) breakers++;
+            if (enemy.elite) elites++;
         }
-        DrawText(TextFormat("BATTLE // Raiders %d  Brutes %d  Knights %d  Breakers %d", raiders, brutes, knights, breakers), 40, screenH - 126, 24, { 228, 220, 208, 255 });
-        DrawText("Kill to fill Fervor   Press F at full Fervor to awaken the War Hymn", 40, screenH - 92, 22, hymnTimer > 0.0f ? Color{ 248, 224, 160, 255 } : Color{ 190, 198, 188, 255 });
+        DrawText(TextFormat("BATTLE // Raiders %d  Brutes %d  Knights %d  Breakers %d  Elites %d", raiders, brutes, knights, breakers, elites), 40, screenH - 126, 24, { 228, 220, 208, 255 });
+        DrawText(TextFormat("Press F at full Fervor to awaken the War Hymn // Hymn %.1fs // Stormfront active", GetWarHymnDuration()), 40, screenH - 92, 22, hymnTimer > 0.0f ? Color{ 248, 224, 160, 255 } : Color{ 190, 198, 188, 255 });
     }
     else {
-        DrawText("GAME OVER // Press ENTER to restart the procession", 40, screenH - 110, 26, { 228, 220, 208, 255 });
+        DrawText("GAME OVER // ENTER starts a new procession // L restores the last chronicle", 40, screenH - 110, 26, { 228, 220, 208, 255 });
     }
 
     if (announcementTimer > 0.0f) {
@@ -1294,10 +2142,19 @@ void Game::DrawUi() const {
     }
 
     if (hoveredValid) {
-        DrawText(TextFormat("CELL %d, %d", hoveredCell.x, hoveredCell.y), screenW - 210, 24, 24, { 210, 218, 226, 255 });
+        DrawText(TextFormat("CELL %d, %d", hoveredCell.x, hoveredCell.y), screenW - 210, 236, 24, { 210, 218, 226, 255 });
     }
 
-    if (hoveredTowerIndex >= 0 && hoveredTowerIndex < (int)towers.size()) {
+    if (hoveredWaystone >= 0) {
+        const WaystoneSite& stone = waystones[hoveredWaystone];
+        DrawRectangle(screenW - 430, 268, 390, 154, Fade(BLACK, 0.72f));
+        DrawRectangleLines(screenW - 430, 268, 390, 154, stone.consecrated ? Color{ 244, 214, 144, 255 } : Color{ 118, 132, 150, 255 });
+        DrawText("ROAD WAYSTONE", screenW - 410, 284, 28, { 236, 228, 210, 255 });
+        DrawText(stone.consecrated ? "STATUS // CONSECRATED" : "STATUS // DORMANT", screenW - 410, 318, 22, stone.consecrated ? Color{ 244, 214, 144, 255 } : Color{ 170, 180, 194, 255 });
+        DrawText(consecratedWaystones >= 2 ? "The sanctum bell can now strike the battlefield" : "Consecrate more stones to awaken the sanctum bell", screenW - 410, 348, 20, { 206, 212, 220, 255 });
+        DrawText(stone.consecrated ? "Already part of the holy march" : "Press C // cost 8 Iron and 14 Ember", screenW - 410, 376, 20, { 220, 198, 136, 255 });
+    }
+    else if (hoveredTowerIndex >= 0 && hoveredTowerIndex < (int)towers.size()) {
         const Tower& tower = towers[hoveredTowerIndex];
         int costGold = GetTowerUpgradeGoldCost(tower);
         int costIron = GetTowerUpgradeIronCost(tower);
@@ -1305,26 +2162,34 @@ void Game::DrawUi() const {
         int sellGold = GetTowerSellGoldRefund(tower);
         int sellIron = GetTowerSellIronRefund(tower);
         int sellEmber = GetTowerSellEmberRefund(tower);
+        bool blessed = IsTowerBlessed(tower);
 
-        DrawRectangle(screenW - 430, 60, 390, 184, Fade(BLACK, 0.72f));
-        DrawRectangleLines(screenW - 430, 60, 390, 184, tower.color);
-        DrawText(TowerLabel(tower.type), screenW - 410, 76, 28, { 236, 228, 210, 255 });
-        DrawText(TextFormat("LEVEL %d", tower.level), screenW - 410, 110, 22, { 206, 212, 220, 255 });
-        DrawText(TextFormat("DAMAGE %d", tower.damage), screenW - 410, 138, 22, { 206, 212, 220, 255 });
-        DrawText(TextFormat("RANGE %.1f   RATE %.2f", tower.range, tower.maxCooldown), screenW - 410, 166, 22, { 206, 212, 220, 255 });
+        DrawRectangle(screenW - 430, 268, 390, 206, Fade(BLACK, 0.72f));
+        DrawRectangleLines(screenW - 430, 268, 390, 206, blessed ? Color{ 244, 214, 144, 255 } : tower.color);
+        DrawText(TowerLabel(tower.type), screenW - 410, 284, 28, { 236, 228, 210, 255 });
+        DrawText(TextFormat("LEVEL %d", tower.level), screenW - 410, 318, 22, { 206, 212, 220, 255 });
+        DrawText(TextFormat("DAMAGE %d%s", tower.damage, blessed ? " + BLESSING" : ""), screenW - 410, 346, 22, blessed ? Color{ 244, 214, 144, 255 } : Color{ 206, 212, 220, 255 });
+        DrawText(TextFormat("RANGE %.1f   RATE %.2f", tower.range, tower.maxCooldown), screenW - 410, 374, 22, { 206, 212, 220, 255 });
         if (tower.level < 3) {
-            DrawText(TextFormat("U UPGRADE // G%d I%d E%d", costGold, costIron, costEmber), screenW - 410, 196, 20, { 220, 198, 136, 255 });
+            DrawText(TextFormat("U UPGRADE // G%d I%d E%d", costGold, costIron, costEmber), screenW - 410, 404, 20, { 220, 198, 136, 255 });
         }
         else {
-            DrawText("MAX CONSECRATION REACHED", screenW - 410, 196, 20, { 220, 198, 136, 255 });
+            DrawText("MAX CONSECRATION REACHED", screenW - 410, 404, 20, { 220, 198, 136, 255 });
         }
-        DrawText(TextFormat("X SELL // G%d I%d E%d", sellGold, sellIron, sellEmber), screenW - 410, 220, 20, { 196, 180, 156, 255 });
+        DrawText(TextFormat("X SELL // G%d I%d E%d", sellGold, sellIron, sellEmber), screenW - 410, 428, 20, { 196, 180, 156, 255 });
+    }
+
+    if (stormFlash > 0.0f) {
+        DrawRectangle(0, 0, screenW, screenH, Fade({ 216, 224, 255, 255 }, stormFlash * 0.18f));
     }
 
     if (state == PlayState::GameOver) {
         DrawRectangle(0, 0, screenW, screenH, Fade(BLACK, 0.54f));
         const char* title = "THE PROCESSION HAS FALLEN";
         int w = MeasureText(title, 54);
-        DrawText(title, screenW / 2 - w / 2, screenH / 2 - 40, 54, { 210, 84, 84, 255 });
+        DrawText(title, screenW / 2 - w / 2, screenH / 2 - 80, 54, { 210, 84, 84, 255 });
+        DrawText(TextFormat("LAST RUN ASH +%d   BEST WAVE %d", legacyAshEarnedThisRun, legacy.highestWave), screenW / 2 - 180, screenH / 2 - 14, 24, { 214, 196, 142, 255 });
+        DrawText(hasSuspendedChronicle ? "PRESS L TO RESTORE THE LAST BUILD-PHASE CHRONICLE" : "NO CHRONICLE AVAILABLE", screenW / 2 - 250, screenH / 2 + 18, 22, hasSuspendedChronicle ? Color{ 170, 198, 220, 255 } : Color{ 138, 142, 146, 255 });
+        DrawText("PRESS ENTER TO BEGIN A NEW PROCESSION", screenW / 2 - 210, screenH / 2 + 48, 22, { 228, 220, 208, 255 });
     }
 }
