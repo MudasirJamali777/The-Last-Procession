@@ -3,8 +3,10 @@
 
 enum class EnemyType {
     AshRaider,
+    AshHound,
     GraveBrute,
     BannerKnight,
+    DirgeHerald,
     ProcessionBreaker
 };
 

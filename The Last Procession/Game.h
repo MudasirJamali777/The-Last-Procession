@@ -56,6 +56,13 @@ struct WaystoneSite {
     bool consecrated = false;
 };
 
+struct BastionSite {
+    GridCoord cell{};
+    int laneIndex = 0;
+    int level = 0;
+    float cooldown = 0.0f;
+};
+
 struct LegacyProfile {
     int ash = 0;
     int highestWave = 1;
@@ -89,6 +96,7 @@ private:
     std::vector<std::vector<GridCoord>> lanes;
     std::vector<Prop> props;
     std::vector<WaystoneSite> waystones;
+    std::vector<BastionSite> bastions;
     std::vector<Tower> towers;
     std::vector<Enemy> enemies;
     std::vector<ShotFx> shots;
@@ -134,6 +142,7 @@ private:
     void UpdateBattlePhase(float dt);
     void UpdateEnemies(float dt);
     void UpdateTowers(float dt);
+    void UpdateBastions(float dt);
     void UpdateShots(float dt);
     void UpdateDeathFx(float dt);
 
@@ -144,6 +153,7 @@ private:
     bool LoadSuspendedRun();
     void AwardLegacyAsh(int amount);
     void TryBuyLegacyUpgrade(int slot);
+    void TriggerCrownfireDecree();
     int GetLegacyUpgradeCost(int slot) const;
     int GetLegacyUpgradeRank(int slot) const;
     int GetLegacyUpgradeMaxRank(int slot) const;
@@ -154,6 +164,7 @@ private:
     void TryUpgradeTower();
     void TrySellTower();
     void TryConsecrateWaystone();
+    void TryFortifyBastion();
     void DamageGate(int amount);
     void DamageCore(int amount);
     void GainFervor(int amount);
@@ -162,12 +173,15 @@ private:
     bool RayToGround(Vector3* outPoint) const;
     int FindTowerIndexAtCell(int x, int y) const;
     int FindWaystoneIndexAtCell(int x, int y) const;
+    int FindBastionIndexAtCell(int x, int y) const;
+    int GetTowerBastionWardLevel(const Tower& tower) const;
     bool IsTowerBlessed(const Tower& tower) const;
     Tower MakeTower(BuildChoice choice, int cellX, int cellY) const;
     void ApplyTowerStats(Tower& tower) const;
     const char* BuildChoiceLabel(BuildChoice choice) const;
     const char* TowerLabel(TowerType type) const;
     const char* EnemyLabel(EnemyType type) const;
+    const char* GetBastionLabel(int laneIndex) const;
     int GetTowerUpgradeGoldCost(const Tower& tower) const;
     int GetTowerUpgradeIronCost(const Tower& tower) const;
     int GetTowerUpgradeEmberCost(const Tower& tower) const;
@@ -176,6 +190,9 @@ private:
     int GetTowerSellEmberRefund(const Tower& tower) const;
     int GetConsecratedWaystoneCount() const;
     float GetWarHymnDuration() const;
+    int GetBastionUpgradeGoldCost(const BastionSite& bastion) const;
+    int GetBastionUpgradeIronCost(const BastionSite& bastion) const;
+    int GetBastionUpgradeEmberCost(const BastionSite& bastion) const;
 
     void Draw() const;
     void DrawWorld() const;

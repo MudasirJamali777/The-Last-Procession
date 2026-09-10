@@ -1,0 +1,10 @@
+TLP_PROFILE_V1
+ash 10
+highestWave 2
+runsStarted 1
+waystones 0
+breakers 0
+rampart 0
+arsenal 0
+emberkeep 0
+hymn 0

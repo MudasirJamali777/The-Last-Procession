@@ -1,0 +1,27 @@
+TLP_RUN_V1
+wave 2
+gold 7
+iron 119
+ember 25
+fervor 100
+buildChoice 3
+gateHp 95
+gateMax 95
+coreHp 120
+coreMax 120
+cameraZoom 60
+runAsh 10
+waystoneCount 3
+24 8 0
+24 24 0
+29 13 0
+towerCount 9
+0 0 27 1 -32.2763
+0 0 15 1 -32.8097
+0 0 4 1 -31.143
+0 23 12 1 -1.96334
+0 24 18 1 0.703333
+0 11 27 1 0
+0 12 15 1 0
+0 13 5 1 0
+1 25 15 1 0
