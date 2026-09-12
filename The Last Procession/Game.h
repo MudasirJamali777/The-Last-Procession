@@ -30,6 +30,15 @@ enum class PropType {
     CartWreck
 };
 
+enum class RoyalDirectiveType {
+    HoldGate,
+    HoldCore,
+    SlayElites,
+    SilenceHeralds,
+    BreakBreakers,
+    HuntHounds
+};
+
 struct Prop {
     PropType type = PropType::DeadTree;
     GridCoord cell{};
@@ -63,12 +72,28 @@ struct BastionSite {
     float cooldown = 0.0f;
 };
 
+struct RoyalDirective {
+    RoyalDirectiveType type = RoyalDirectiveType::HoldGate;
+    int target = 1;
+    int progress = 0;
+    int rewardGold = 0;
+    int rewardIron = 0;
+    int rewardEmber = 0;
+    int rewardAsh = 0;
+    bool failed = false;
+    bool completed = false;
+    std::string title = "HOLD THE GATE";
+    std::string detail = "Let no enemy damage the front gate this wave.";
+};
+
 struct LegacyProfile {
     int ash = 0;
     int highestWave = 1;
     int runsStarted = 0;
     int totalWaystonesConsecrated = 0;
     int breakersSlain = 0;
+    int directivesCompleted = 0;
+    int flawlessWaves = 0;
     int rampartRank = 0;
     int arsenalRank = 0;
     int emberkeepRank = 0;
@@ -102,6 +127,7 @@ private:
     std::vector<ShotFx> shots;
     std::vector<DeathFx> deathFx;
     WaveState wave;
+    RoyalDirective directive;
 
     PlayState state = PlayState::BuildPhase;
     BuildChoice buildChoice = BuildChoice::WatchbowNest;
@@ -110,6 +136,8 @@ private:
     int ember = 10;
     int fervor = 0;
     int fervorMax = 100;
+    int waveGateDamageTaken = 0;
+    int waveCoreDamageTaken = 0;
     float hymnTimer = 0.0f;
     float worldTime = 0.0f;
     float stormFlash = 0.0f;
@@ -131,6 +159,7 @@ private:
     void BuildMap();
     void AddProp(PropType type, int x, int y, bool blockCell);
     void BuildWave(int waveNumber);
+    void ConfigureRoyalDirective();
     void StartWave();
     void SpawnEnemy(EnemyType type, int laneIndex, bool elite);
 
@@ -193,6 +222,7 @@ private:
     int GetBastionUpgradeGoldCost(const BastionSite& bastion) const;
     int GetBastionUpgradeIronCost(const BastionSite& bastion) const;
     int GetBastionUpgradeEmberCost(const BastionSite& bastion) const;
+    std::string GetDirectiveProgressText() const;
 
     void Draw() const;
     void DrawWorld() const;

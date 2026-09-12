@@ -60,6 +60,8 @@ void Game::ResetRun(bool preserveSuspend) {
     iron = 95 + legacy.rampartRank * 6;
     ember = 28 + legacy.emberkeepRank * 5;
     fervor = 0;
+    waveGateDamageTaken = 0;
+    waveCoreDamageTaken = 0;
     hymnTimer = 0.0f;
     worldTime = 0.0f;
     stormFlash = 0.0f;
@@ -73,11 +75,12 @@ void Game::ResetRun(bool preserveSuspend) {
     shots.clear();
     deathFx.clear();
     fortress = Fortress{};
+    directive = RoyalDirective{};
     state = PlayState::BuildPhase;
     buildChoice = BuildChoice::WatchbowNest;
     announcement = preserveSuspend
-        ? "BATCH 10 // NEW PROCESSION, PRESS L TO RESTORE YOUR CHRONICLE"
-        : "BATCH 10 // STORMFRONT, ELITES, AND A LIVING FORTRESS";
+        ? "BATCH 14 // ROYAL DIRECTIVES, PRESS L TO RESTORE YOUR CHRONICLE"
+        : "BATCH 14 // ROYAL DIRECTIVES AND FLAWLESS HONORS";
     announcementTimer = 5.2f;
     hoveredValid = false;
     hoveredCell = { -1, -1 };
@@ -128,6 +131,8 @@ void Game::LoadLegacyProfile() {
         else if (key == "runsStarted") legacy.runsStarted = value;
         else if (key == "waystones") legacy.totalWaystonesConsecrated = value;
         else if (key == "breakers") legacy.breakersSlain = value;
+        else if (key == "directives") legacy.directivesCompleted = value;
+        else if (key == "flawless") legacy.flawlessWaves = value;
         else if (key == "rampart") legacy.rampartRank = value;
         else if (key == "arsenal") legacy.arsenalRank = value;
         else if (key == "emberkeep") legacy.emberkeepRank = value;
@@ -139,6 +144,8 @@ void Game::LoadLegacyProfile() {
     legacy.runsStarted = std::max(0, legacy.runsStarted);
     legacy.totalWaystonesConsecrated = std::max(0, legacy.totalWaystonesConsecrated);
     legacy.breakersSlain = std::max(0, legacy.breakersSlain);
+    legacy.directivesCompleted = std::max(0, legacy.directivesCompleted);
+    legacy.flawlessWaves = std::max(0, legacy.flawlessWaves);
     legacy.rampartRank = std::max(0, std::min(legacy.rampartRank, GetLegacyUpgradeMaxRank(0)));
     legacy.arsenalRank = std::max(0, std::min(legacy.arsenalRank, GetLegacyUpgradeMaxRank(1)));
     legacy.emberkeepRank = std::max(0, std::min(legacy.emberkeepRank, GetLegacyUpgradeMaxRank(2)));
@@ -155,6 +162,8 @@ void Game::SaveLegacyProfile() const {
     out << "runsStarted " << legacy.runsStarted << "\n";
     out << "waystones " << legacy.totalWaystonesConsecrated << "\n";
     out << "breakers " << legacy.breakersSlain << "\n";
+    out << "directives " << legacy.directivesCompleted << "\n";
+    out << "flawless " << legacy.flawlessWaves << "\n";
     out << "rampart " << legacy.rampartRank << "\n";
     out << "arsenal " << legacy.arsenalRank << "\n";
     out << "emberkeep " << legacy.emberkeepRank << "\n";
@@ -828,6 +837,85 @@ void Game::BuildWave(int waveNumber) {
             wave.spawns.push_back(bossB);
         }
     }
+
+    ConfigureRoyalDirective();
+}
+
+void Game::ConfigureRoyalDirective() {
+    directive = RoyalDirective{};
+
+    int hounds = 0;
+    int heralds = 0;
+    int breakers = 0;
+    int elites = 0;
+    for (const SpawnEntry& entry : wave.spawns) {
+        if (entry.type == EnemyType::AshHound) hounds++;
+        if (entry.type == EnemyType::DirgeHerald) heralds++;
+        if (entry.type == EnemyType::ProcessionBreaker) breakers++;
+        if (entry.elite) elites++;
+    }
+
+    directive.rewardGold = 14 + wave.number * 3;
+    directive.rewardIron = 8 + wave.number * 2;
+    directive.rewardEmber = 2 + wave.number / 2;
+    directive.rewardAsh = 4 + wave.number / 2;
+
+    if (breakers > 0) {
+        directive.type = RoyalDirectiveType::BreakBreakers;
+        directive.target = breakers;
+        directive.title = "BREAKER DECREE";
+        directive.detail = "Slay every Procession Breaker before the sanctum shatters.";
+        directive.rewardGold += 18;
+        directive.rewardIron += 6;
+        directive.rewardEmber += 4;
+        directive.rewardAsh += 4;
+    }
+    else if (heralds > 0) {
+        directive.type = RoyalDirectiveType::SilenceHeralds;
+        directive.target = heralds;
+        directive.title = "SILENCE THE CHANT";
+        directive.detail = "Kill each Dirge Herald in this wave.";
+        directive.rewardGold += 10;
+        directive.rewardEmber += 3;
+        directive.rewardAsh += 2;
+    }
+    else if (omenLane == 0 && hounds >= 4) {
+        directive.type = RoyalDirectiveType::HuntHounds;
+        directive.target = std::min(hounds, 6 + wave.number / 5);
+        directive.title = "ASH HUNT";
+        directive.detail = "Cull the omen hounds before they flood the walls.";
+        directive.rewardGold += 12;
+        directive.rewardIron += 4;
+        directive.rewardAsh += 1;
+    }
+    else if (elites >= 2) {
+        directive.type = RoyalDirectiveType::SlayElites;
+        directive.target = std::min(elites, 3 + wave.number / 7);
+        directive.title = "CULL THE ANOINTED";
+        directive.detail = "Destroy the elite attackers marked by the omen.";
+        directive.rewardGold += 12;
+        directive.rewardEmber += 2;
+        directive.rewardAsh += 3;
+    }
+    else if ((wave.number % 2) == 1) {
+        directive.type = RoyalDirectiveType::HoldGate;
+        directive.target = 1;
+        directive.title = "HOLD THE GATE";
+        directive.detail = "Let no enemy damage the front gate this wave.";
+        directive.rewardGold += 4;
+        directive.rewardIron += 6;
+    }
+    else {
+        directive.type = RoyalDirectiveType::HoldCore;
+        directive.target = 1;
+        directive.title = "KEEP THE SANCTUM";
+        directive.detail = "Let no enemy strike the Holy Core this wave.";
+        directive.rewardEmber += 3;
+        directive.rewardAsh += 1;
+    }
+
+    waveGateDamageTaken = 0;
+    waveCoreDamageTaken = 0;
 }
 
 void Game::StartWave() {
@@ -840,14 +928,19 @@ void Game::StartWave() {
         SaveLegacyProfile();
     }
 
+    waveGateDamageTaken = 0;
+    waveCoreDamageTaken = 0;
+    directive.progress = 0;
+    directive.failed = false;
+    directive.completed = false;
     wave.active = true;
     wave.timer = 0.0f;
     wave.nextSpawnIndex = 0;
     state = PlayState::BattlePhase;
     sanctumPulseTimer = std::max(2.6f, 6.0f - 0.4f * (float)GetConsecratedWaystoneCount());
     if (stormFlash < 0.12f) stormFlash = 0.12f;
-    announcement = TextFormat("WAVE %d // %s", wave.number, waveOmen.c_str());
-    announcementTimer = 2.8f;
+    announcement = TextFormat("WAVE %d // %s // %s", wave.number, waveOmen.c_str(), directive.title.c_str());
+    announcementTimer = 3.0f;
 }
 
 void Game::SpawnEnemy(EnemyType type, int laneIndex, bool elite) {
@@ -1132,10 +1225,31 @@ void Game::UpdateBattlePhase(float dt) {
         state = PlayState::BuildPhase;
         sanctumPulseVisual = 0.0f;
 
+        if (!directive.failed && !directive.completed) {
+            if (directive.type == RoyalDirectiveType::HoldGate) {
+                directive.completed = (waveGateDamageTaken <= 0);
+            }
+            else if (directive.type == RoyalDirectiveType::HoldCore) {
+                directive.completed = (waveCoreDamageTaken <= 0);
+            }
+        }
+
+        if (!directive.completed && directive.type != RoyalDirectiveType::HoldGate && directive.type != RoyalDirectiveType::HoldCore) {
+            directive.failed = true;
+        }
+
         int clearedWave = wave.number;
         int blessedSites = GetConsecratedWaystoneCount();
         int raisedBastions = 0;
         for (const BastionSite& bastion : bastions) if (bastion.level > 0) raisedBastions++;
+
+        bool directiveCompleted = directive.completed;
+        int directiveRewardGold = directive.rewardGold;
+        int directiveRewardIron = directive.rewardIron;
+        int directiveRewardEmber = directive.rewardEmber;
+        int directiveRewardAsh = directive.rewardAsh;
+        bool flawlessWave = (waveGateDamageTaken == 0 && waveCoreDamageTaken == 0);
+
         gold += 32 + clearedWave * 9 + blessedSites * 6 + raisedBastions * 4;
         iron += 14 + clearedWave * 4 + (fortress.gateHp > 0 ? 6 : 0) + blessedSites * 3 + raisedBastions * 2;
         ember += 4 + clearedWave + blessedSites * 2 + legacy.emberkeepRank;
@@ -1146,13 +1260,38 @@ void Game::UpdateBattlePhase(float dt) {
         fervor += 18 + blessedSites * 4 + legacy.hymnRank * 2 + raisedBastions * 3;
         if (fervor > fervorMax) fervor = fervorMax;
         AwardLegacyAsh(8 + clearedWave * 2 + blessedSites * 2 + raisedBastions * 2 + ((clearedWave % 5 == 0) ? 6 : 0));
+
+        if (directiveCompleted) {
+            gold += directiveRewardGold;
+            iron += directiveRewardIron;
+            ember += directiveRewardEmber;
+            AwardLegacyAsh(directiveRewardAsh);
+            legacy.directivesCompleted++;
+            SaveLegacyProfile();
+        }
+
+        if (flawlessWave) {
+            legacy.flawlessWaves++;
+            AwardLegacyAsh(1 + clearedWave / 6);
+            SaveLegacyProfile();
+        }
+
         wave.number++;
         BuildWave(wave.number);
         SaveSuspendedRun();
         hasSuspendedChronicle = true;
         if (stormFlash < 0.20f) stormFlash = 0.20f;
 
-        if (blessedSites > 0 && raisedBastions > 0) {
+        if (directiveCompleted && flawlessWave) {
+            announcement = TextFormat("ROYAL DIRECTIVE FULFILLED // FLAWLESS HOLD // +G%d I%d E%d ASH %d", directiveRewardGold, directiveRewardIron, directiveRewardEmber, directiveRewardAsh);
+        }
+        else if (directiveCompleted) {
+            announcement = TextFormat("ROYAL DIRECTIVE FULFILLED // +G%d I%d E%d ASH %d", directiveRewardGold, directiveRewardIron, directiveRewardEmber, directiveRewardAsh);
+        }
+        else if (flawlessWave) {
+            announcement = "FLAWLESS HOLD // REBUILD, UPGRADE, FORTIFY";
+        }
+        else if (blessedSites > 0 && raisedBastions > 0) {
             announcement = TextFormat("SIEGE BROKEN // %d WAYSTONES AND %d BASTIONS HOLD THE MARCH", blessedSites, raisedBastions);
         }
         else if (blessedSites > 0) {
@@ -1744,19 +1883,37 @@ void Game::TryFortifyBastion() {
 }
 
 void Game::DamageGate(int amount) {
+    bool directiveBroken = false;
+    if (state == PlayState::BattlePhase) {
+        waveGateDamageTaken += amount;
+        if (directive.type == RoyalDirectiveType::HoldGate && !directive.failed && !directive.completed) {
+            directive.failed = true;
+            directiveBroken = true;
+        }
+    }
+
     fortress.gateHp -= amount;
     if (fortress.gateHp < 0) fortress.gateHp = 0;
     if (stormFlash < (amount >= 20 ? 0.28f : 0.10f)) stormFlash = (amount >= 20 ? 0.28f : 0.10f);
-    announcement = TextFormat("FRONT GATE STRUCK // %d HP", fortress.gateHp);
-    announcementTimer = 0.75f;
+    announcement = directiveBroken ? "DIRECTIVE FAILED // THE GATE WAS STRUCK" : TextFormat("FRONT GATE STRUCK // %d HP", fortress.gateHp);
+    announcementTimer = directiveBroken ? 1.0f : 0.75f;
 }
 
 void Game::DamageCore(int amount) {
+    bool directiveBroken = false;
+    if (state == PlayState::BattlePhase) {
+        waveCoreDamageTaken += amount;
+        if (directive.type == RoyalDirectiveType::HoldCore && !directive.failed && !directive.completed) {
+            directive.failed = true;
+            directiveBroken = true;
+        }
+    }
+
     fortress.coreHp -= amount;
     if (fortress.coreHp < 0) fortress.coreHp = 0;
     if (stormFlash < 0.34f) stormFlash = 0.34f;
-    announcement = TextFormat("HOLY CORE STRUCK // %d HP", fortress.coreHp);
-    announcementTimer = 1.0f;
+    announcement = directiveBroken ? "DIRECTIVE FAILED // THE SANCTUM WAS BREACHED" : TextFormat("HOLY CORE STRUCK // %d HP", fortress.coreHp);
+    announcementTimer = directiveBroken ? 1.1f : 1.0f;
     if (fortress.coreHp <= 0) {
         state = PlayState::GameOver;
         announcement = "THE PROCESSION HAS FALLEN";
@@ -1785,6 +1942,24 @@ void Game::TriggerWarHymn() {
 }
 
 void Game::RegisterEnemyKill(const Enemy& enemy) {
+    if (state == PlayState::BattlePhase && !directive.failed && !directive.completed) {
+        bool trackedKill = false;
+        if (directive.type == RoyalDirectiveType::SlayElites && enemy.elite) trackedKill = true;
+        else if (directive.type == RoyalDirectiveType::SilenceHeralds && enemy.type == EnemyType::DirgeHerald) trackedKill = true;
+        else if (directive.type == RoyalDirectiveType::BreakBreakers && enemy.type == EnemyType::ProcessionBreaker) trackedKill = true;
+        else if (directive.type == RoyalDirectiveType::HuntHounds && enemy.type == EnemyType::AshHound) trackedKill = true;
+
+        if (trackedKill) {
+            directive.progress++;
+            if (directive.progress >= directive.target) {
+                directive.progress = directive.target;
+                directive.completed = true;
+                announcement = TextFormat("ROYAL DIRECTIVE FULFILLED // %s", directive.title.c_str());
+                announcementTimer = 1.5f;
+            }
+        }
+    }
+
     int goldReward = 4;
     int emberReward = 0;
     int fervorReward = 8 + legacy.hymnRank;
@@ -2086,6 +2261,26 @@ int Game::GetBastionUpgradeIronCost(const BastionSite& bastion) const {
 
 int Game::GetBastionUpgradeEmberCost(const BastionSite& bastion) const {
     return bastion.level >= 2 ? 5 + bastion.laneIndex * 2 : 0;
+}
+
+std::string Game::GetDirectiveProgressText() const {
+    if (directive.type == RoyalDirectiveType::HoldGate) {
+        if (directive.failed) return std::string("FAILED // gate took ") + std::to_string(waveGateDamageTaken) + " damage";
+        return (waveGateDamageTaken <= 0) ? "Gate remains unbroken." : "Gate must take no more damage.";
+    }
+    if (directive.type == RoyalDirectiveType::HoldCore) {
+        if (directive.failed) return std::string("FAILED // sanctum took ") + std::to_string(waveCoreDamageTaken) + " damage";
+        return (waveCoreDamageTaken <= 0) ? "Holy Core remains untouched." : "Holy Core must take no more damage.";
+    }
+
+    std::string progress = std::to_string(directive.progress) + "/" + std::to_string(directive.target);
+    if (directive.completed) progress += " // FULFILLED";
+    else if (directive.failed) progress += " // FAILED";
+
+    if (directive.type == RoyalDirectiveType::SlayElites) return std::string("Elite kills ") + progress;
+    if (directive.type == RoyalDirectiveType::SilenceHeralds) return std::string("Heralds silenced ") + progress;
+    if (directive.type == RoyalDirectiveType::BreakBreakers) return std::string("Breakers slain ") + progress;
+    return std::string("Hounds culled ") + progress;
 }
 
 void Game::Draw() const {
@@ -2557,47 +2752,50 @@ void Game::DrawUi() const {
         if (entry.elite) nextElites++;
     }
 
-    DrawRectangle(22, 18, 1040, 214, Fade(BLACK, 0.68f));
-    DrawRectangleLines(22, 18, 1040, 214, { 188, 156, 96, 255 });
+    std::string directiveProgress = GetDirectiveProgressText();
+
+    DrawRectangle(22, 18, 1120, 214, Fade(BLACK, 0.68f));
+    DrawRectangleLines(22, 18, 1120, 214, { 188, 156, 96, 255 });
     DrawText("THE LAST PROCESSION", 40, 30, 34, { 236, 228, 210, 255 });
-    DrawText("BATCH 13 // THREAT FORECAST AND NEW ENEMY CAST", 40, 68, 20, { 196, 172, 118, 255 });
+    DrawText("BATCH 14 // ROYAL DIRECTIVES AND FLAWLESS HONORS", 40, 68, 20, { 196, 172, 118, 255 });
     DrawText(TextFormat("WAVE %d", wave.number), 40, 100, 24, { 188, 156, 96, 255 });
     DrawText(TextFormat("OMEN // %s", waveOmen.c_str()), 160, 100, 24, omenLane >= 0 ? Color{ 226, 136, 116, 255 } : Color{ 198, 208, 214, 255 });
     DrawText(TextFormat("GOLD %d   IRON %d   EMBER %d", gold, iron, ember), 40, 132, 22, { 210, 214, 204, 255 });
     DrawText(TextFormat("GATE %d / %d", fortress.gateHp, fortress.gateMaxHp), 330, 132, 22, fortress.gateHp > 0 ? Color{ 210, 176, 112, 255 } : Color{ 198, 76, 76, 255 });
     DrawText(TextFormat("HOLY CORE %d / %d", fortress.coreHp, fortress.coreMaxHp), 520, 132, 22, fortress.coreHp > 30 ? Color{ 128, 196, 136, 255 } : Color{ 198, 76, 76, 255 });
-    DrawText(TextFormat("FERVOR %d / %d", fervor, fervorMax), 760, 132, 22, hymnTimer > 0.0f ? Color{ 250, 228, 164, 255 } : Color{ 168, 190, 216, 255 });
-    DrawText(TextFormat("ZOOM %.1f", cameraZoom), 40, 164, 22, { 198, 208, 214, 255 });
-    DrawText(TextFormat("WAYSTONES %d / %d", consecratedWaystones, (int)waystones.size()), 210, 164, 22, consecratedWaystones > 0 ? Color{ 244, 214, 144, 255 } : Color{ 160, 170, 180, 255 });
-    DrawText(TextFormat("BASTIONS %d / %d", raisedBastions, (int)bastions.size()), 420, 164, 22, raisedBastions > 0 ? Color{ 220, 188, 122, 255 } : Color{ 160, 170, 180, 255 });
-    DrawText(TextFormat("LEGACY ASH %d   RUN ASH +%d", legacy.ash, legacyAshEarnedThisRun), 620, 164, 22, { 214, 196, 142, 255 });
+    DrawText(TextFormat("FERVOR %d / %d", fervor, fervorMax), 780, 132, 22, hymnTimer > 0.0f ? Color{ 250, 228, 164, 255 } : Color{ 168, 190, 216, 255 });
+    DrawText(TextFormat("LEGACY ASH %d   RUN ASH +%d", legacy.ash, legacyAshEarnedThisRun), 40, 164, 22, { 214, 196, 142, 255 });
+    DrawText(TextFormat("WAYSTONES %d / %d   BASTIONS %d / %d", consecratedWaystones, (int)waystones.size(), raisedBastions, (int)bastions.size()), 390, 164, 22, consecratedWaystones > 0 || raisedBastions > 0 ? Color{ 228, 208, 150, 255 } : Color{ 160, 170, 180, 255 });
+    DrawText(TextFormat("DIRECTIVES %d   FLAWLESS %d", legacy.directivesCompleted, legacy.flawlessWaves), 780, 164, 22, { 196, 208, 214, 255 });
     DrawText(hasSuspendedChronicle ? "CHRONICLE READY // PRESS L TO RESTORE" : "NO CHRONICLE SAVED YET", 40, 190, 18, hasSuspendedChronicle ? Color{ 170, 198, 220, 255 } : Color{ 124, 132, 140, 255 });
-    DrawText(TextFormat("CROWNFIRE Q // %d FERVOR", crownfireCost), 760, 190, 18, fervor >= crownfireCost ? Color{ 255, 220, 154, 255 } : Color{ 150, 154, 162, 255 });
+    DrawText(TextFormat("CROWNFIRE Q // %d FERVOR", crownfireCost), 420, 190, 18, fervor >= crownfireCost ? Color{ 255, 220, 154, 255 } : Color{ 150, 154, 162, 255 });
+    DrawText(TextFormat("DIRECTIVE // %s", directive.title.c_str()), 700, 190, 18, directive.failed ? Color{ 214, 104, 104, 255 } : (directive.completed ? Color{ 164, 220, 146, 255 } : Color{ 228, 208, 150, 255 }));
 
-    DrawRectangle(screenW - 430, 18, 408, 258, Fade(BLACK, 0.72f));
-    DrawRectangleLines(screenW - 430, 18, 408, 258, { 110, 126, 172, 255 });
+    DrawRectangle(screenW - 430, 18, 408, 278, Fade(BLACK, 0.72f));
+    DrawRectangleLines(screenW - 430, 18, 408, 278, { 110, 126, 172, 255 });
     DrawText("FORTRESS ALTAR", screenW - 410, 34, 30, { 236, 228, 210, 255 });
     DrawText(TextFormat("BEST WAVE %d   BREAKERS %d", legacy.highestWave, legacy.breakersSlain), screenW - 410, 72, 18, { 198, 208, 214, 255 });
     DrawText(TextFormat("TOTAL WAYSTONES %d   RUNS %d", legacy.totalWaystonesConsecrated, legacy.runsStarted), screenW - 410, 94, 18, { 198, 208, 214, 255 });
-    DrawText(TextFormat("5 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(0), legacy.rampartRank, GetLegacyUpgradeMaxRank(0), GetLegacyUpgradeCost(0)), screenW - 410, 124, 18, { 210, 176, 112, 255 });
-    DrawText(TextFormat("6 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(1), legacy.arsenalRank, GetLegacyUpgradeMaxRank(1), GetLegacyUpgradeCost(1)), screenW - 410, 146, 18, { 194, 172, 118, 255 });
-    DrawText(TextFormat("7 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(2), legacy.emberkeepRank, GetLegacyUpgradeMaxRank(2), GetLegacyUpgradeCost(2)), screenW - 410, 168, 18, { 244, 166, 84, 255 });
-    DrawText(TextFormat("8 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(3), legacy.hymnRank, GetLegacyUpgradeMaxRank(3), GetLegacyUpgradeCost(3)), screenW - 410, 190, 18, { 168, 190, 216, 255 });
-    DrawText(TextFormat("NEXT // R%d H%d B%d K%d D%d X%d E%d", nextRaiders, nextHounds, nextBrutes, nextKnights, nextHeralds, nextBreakers, nextElites), screenW - 410, 218, 18, { 220, 208, 170, 255 });
+    DrawText(TextFormat("DIRECTIVES %d   FLAWLESS %d", legacy.directivesCompleted, legacy.flawlessWaves), screenW - 410, 116, 18, { 214, 196, 142, 255 });
+    DrawText(TextFormat("5 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(0), legacy.rampartRank, GetLegacyUpgradeMaxRank(0), GetLegacyUpgradeCost(0)), screenW - 410, 144, 18, { 210, 176, 112, 255 });
+    DrawText(TextFormat("6 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(1), legacy.arsenalRank, GetLegacyUpgradeMaxRank(1), GetLegacyUpgradeCost(1)), screenW - 410, 166, 18, { 194, 172, 118, 255 });
+    DrawText(TextFormat("7 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(2), legacy.emberkeepRank, GetLegacyUpgradeMaxRank(2), GetLegacyUpgradeCost(2)), screenW - 410, 188, 18, { 244, 166, 84, 255 });
+    DrawText(TextFormat("8 %s  R%d/%d  COST %d", GetLegacyUpgradeLabel(3), legacy.hymnRank, GetLegacyUpgradeMaxRank(3), GetLegacyUpgradeCost(3)), screenW - 410, 210, 18, { 168, 190, 216, 255 });
+    DrawText(TextFormat("NEXT // R%d H%d B%d K%d D%d X%d E%d", nextRaiders, nextHounds, nextBrutes, nextKnights, nextHeralds, nextBreakers, nextElites), screenW - 410, 238, 18, { 220, 208, 170, 255 });
 
     for (int i = 0; i < (int)bastions.size(); ++i) {
         const BastionSite& bastion = bastions[i];
-        int y = 240 + i * 20;
+        int y = 260 + i * 20;
         Color lineColor = (bastion.laneIndex == omenLane) ? Color{ 234, 150, 124, 255 } : (bastion.level > 0 ? Color{ 214, 196, 142, 255 } : Color{ 154, 164, 174, 255 });
         DrawText(TextFormat("R %s  LVL %d  COST G%d I%d E%d", GetBastionLabel(bastion.laneIndex), bastion.level, GetBastionUpgradeGoldCost(bastion), GetBastionUpgradeIronCost(bastion), GetBastionUpgradeEmberCost(bastion)), screenW - 410, y, 18, lineColor);
     }
 
-    DrawRectangle(22, screenH - 146, screenW - 44, 124, Fade(BLACK, 0.72f));
-    DrawRectangleLines(22, screenH - 146, screenW - 44, 124, { 110, 126, 172, 255 });
+    DrawRectangle(22, screenH - 176, screenW - 44, 154, Fade(BLACK, 0.72f));
+    DrawRectangleLines(22, screenH - 176, screenW - 44, 154, { 110, 126, 172, 255 });
 
     if (state == PlayState::BuildPhase) {
-        DrawText("BUILD // 1 Bow  2 Censer  3 Spire  4 Barricade  U Upgrade  X Sell  C Consecrate  R Fortify  H Gate  J Core  L Restore", 40, screenH - 126, 23, { 228, 220, 208, 255 });
-        DrawText(TextFormat("FORECAST // Raiders %d  Hounds %d  Brutes %d  Knights %d  Heralds %d  Breakers %d  Elites %d", nextRaiders, nextHounds, nextBrutes, nextKnights, nextHeralds, nextBreakers, nextElites), 40, screenH - 92, 20, { 198, 208, 214, 255 });
+        DrawText("BUILD // 1 Bow  2 Censer  3 Spire  4 Barricade  U Upgrade  X Sell  C Consecrate  R Fortify  H Gate  J Core  L Restore  SPACE Begin", 40, screenH - 156, 22, { 228, 220, 208, 255 });
+        DrawText(TextFormat("FORECAST // Raiders %d  Hounds %d  Brutes %d  Knights %d  Heralds %d  Breakers %d  Elites %d", nextRaiders, nextHounds, nextBrutes, nextKnights, nextHeralds, nextBreakers, nextElites), 40, screenH - 122, 20, { 198, 208, 214, 255 });
     }
     else if (state == PlayState::BattlePhase) {
         int raiders = 0, hounds = 0, brutes = 0, knights = 0, heralds = 0, breakers = 0, elites = 0;
@@ -2610,12 +2808,16 @@ void Game::DrawUi() const {
             else if (enemy.type == EnemyType::ProcessionBreaker) breakers++;
             if (enemy.elite) elites++;
         }
-        DrawText(TextFormat("BATTLE // Raiders %d  Hounds %d  Brutes %d  Knights %d  Heralds %d  Breakers %d  Elites %d", raiders, hounds, brutes, knights, heralds, breakers, elites), 40, screenH - 126, 20, { 228, 220, 208, 255 });
-        DrawText(TextFormat("Heralds buff nearby heretics // Q Crownfire // F War Hymn %.1fs // Fortified bastions ward nearby towers", GetWarHymnDuration()), 40, screenH - 92, 20, fervor >= crownfireCost ? Color{ 248, 224, 160, 255 } : Color{ 190, 198, 188, 255 });
+        DrawText(TextFormat("BATTLE // Raiders %d  Hounds %d  Brutes %d  Knights %d  Heralds %d  Breakers %d  Elites %d", raiders, hounds, brutes, knights, heralds, breakers, elites), 40, screenH - 156, 20, { 228, 220, 208, 255 });
+        DrawText(TextFormat("Heralds buff nearby heretics // Q Crownfire // F War Hymn %.1fs // Fortified bastions ward nearby towers", GetWarHymnDuration()), 40, screenH - 122, 20, fervor >= crownfireCost ? Color{ 248, 224, 160, 255 } : Color{ 190, 198, 188, 255 });
     }
     else {
-        DrawText("GAME OVER // ENTER starts a new procession // L restores the last chronicle", 40, screenH - 110, 26, { 228, 220, 208, 255 });
+        DrawText("GAME OVER // ENTER starts a new procession // L restores the last chronicle", 40, screenH - 156, 26, { 228, 220, 208, 255 });
     }
+
+    DrawText(TextFormat("CROWN DIRECTIVE // %s", directive.title.c_str()), 40, screenH - 88, 22, directive.failed ? Color{ 214, 104, 104, 255 } : (directive.completed ? Color{ 164, 220, 146, 255 } : Color{ 228, 208, 150, 255 }));
+    DrawText(directive.detail.c_str(), 40, screenH - 58, 18, { 206, 212, 220, 255 });
+    DrawText(TextFormat("%s // REWARD G%d I%d E%d ASH %d", directiveProgress.c_str(), directive.rewardGold, directive.rewardIron, directive.rewardEmber, directive.rewardAsh), 40, screenH - 32, 18, directive.failed ? Color{ 214, 132, 132, 255 } : (directive.completed ? Color{ 176, 226, 158, 255 } : Color{ 220, 198, 136, 255 }));
 
     if (announcementTimer > 0.0f) {
         int width = MeasureText(announcement.c_str(), 32);
@@ -2625,33 +2827,33 @@ void Game::DrawUi() const {
     }
 
     if (hoveredValid) {
-        DrawText(TextFormat("CELL %d, %d", hoveredCell.x, hoveredCell.y), screenW - 210, 286, 24, { 210, 218, 226, 255 });
+        DrawText(TextFormat("CELL %d, %d", hoveredCell.x, hoveredCell.y), screenW - 210, 304, 24, { 210, 218, 226, 255 });
     }
 
     if (hoveredBastion >= 0) {
         const BastionSite& bastion = bastions[hoveredBastion];
-        DrawRectangle(screenW - 430, 318, 390, 190, Fade(BLACK, 0.72f));
-        DrawRectangleLines(screenW - 430, 318, 390, 190, bastion.level > 0 ? Color{ 220, 188, 122, 255 } : Color{ 120, 132, 150, 255 });
-        DrawText(GetBastionLabel(bastion.laneIndex), screenW - 410, 334, 28, { 236, 228, 210, 255 });
-        DrawText((bastion.laneIndex == omenLane) ? "OMEN FACING // PRIMARY THREAT LANE" : "WALL ROLE // SUPPORT FIRE LANE", screenW - 410, 368, 20, (bastion.laneIndex == omenLane) ? Color{ 230, 144, 116, 255 } : Color{ 198, 208, 214, 255 });
-        DrawText(TextFormat("LEVEL %d", bastion.level), screenW - 410, 394, 22, { 206, 212, 220, 255 });
-        DrawText(TextFormat("Ward aura level %d to nearby towers", bastion.level), screenW - 410, 420, 20, bastion.level > 0 ? Color{ 232, 208, 150, 255 } : Color{ 146, 154, 162, 255 });
+        DrawRectangle(screenW - 430, 336, 390, 190, Fade(BLACK, 0.72f));
+        DrawRectangleLines(screenW - 430, 336, 390, 190, bastion.level > 0 ? Color{ 220, 188, 122, 255 } : Color{ 120, 132, 150, 255 });
+        DrawText(GetBastionLabel(bastion.laneIndex), screenW - 410, 352, 28, { 236, 228, 210, 255 });
+        DrawText((bastion.laneIndex == omenLane) ? "OMEN FACING // PRIMARY THREAT LANE" : "WALL ROLE // SUPPORT FIRE LANE", screenW - 410, 386, 20, (bastion.laneIndex == omenLane) ? Color{ 230, 144, 116, 255 } : Color{ 198, 208, 214, 255 });
+        DrawText(TextFormat("LEVEL %d", bastion.level), screenW - 410, 412, 22, { 206, 212, 220, 255 });
+        DrawText(TextFormat("Ward aura level %d to nearby towers", bastion.level), screenW - 410, 438, 20, bastion.level > 0 ? Color{ 232, 208, 150, 255 } : Color{ 146, 154, 162, 255 });
         if (bastion.level < 3) {
-            DrawText(TextFormat("R FORTIFY // G%d I%d E%d", GetBastionUpgradeGoldCost(bastion), GetBastionUpgradeIronCost(bastion), GetBastionUpgradeEmberCost(bastion)), screenW - 410, 446, 20, { 220, 198, 136, 255 });
+            DrawText(TextFormat("R FORTIFY // G%d I%d E%d", GetBastionUpgradeGoldCost(bastion), GetBastionUpgradeIronCost(bastion), GetBastionUpgradeEmberCost(bastion)), screenW - 410, 464, 20, { 220, 198, 136, 255 });
         }
         else {
-            DrawText("MAX FORTIFICATION REACHED", screenW - 410, 446, 20, { 220, 198, 136, 255 });
+            DrawText("MAX FORTIFICATION REACHED", screenW - 410, 464, 20, { 220, 198, 136, 255 });
         }
-        DrawText("Fortified bastions auto-fire and feed Crownfire", screenW - 410, 474, 20, { 196, 204, 212, 255 });
+        DrawText("Fortified bastions auto-fire and feed Crownfire", screenW - 410, 492, 20, { 196, 204, 212, 255 });
     }
     else if (hoveredWaystone >= 0) {
         const WaystoneSite& stone = waystones[hoveredWaystone];
-        DrawRectangle(screenW - 430, 318, 390, 160, Fade(BLACK, 0.72f));
-        DrawRectangleLines(screenW - 430, 318, 390, 160, stone.consecrated ? Color{ 244, 214, 144, 255 } : Color{ 118, 132, 150, 255 });
-        DrawText("ROAD WAYSTONE", screenW - 410, 334, 28, { 236, 228, 210, 255 });
-        DrawText(stone.consecrated ? "STATUS // CONSECRATED" : "STATUS // DORMANT", screenW - 410, 368, 22, stone.consecrated ? Color{ 244, 214, 144, 255 } : Color{ 170, 180, 194, 255 });
-        DrawText(consecratedWaystones >= 2 ? "Sanctum bell active // Crownfire cost reduced" : "Consecrate more stones to awaken the sanctum bell", screenW - 410, 398, 20, { 206, 212, 220, 255 });
-        DrawText(stone.consecrated ? "Already part of the holy march" : "Press C // cost 8 Iron and 14 Ember", screenW - 410, 426, 20, { 220, 198, 136, 255 });
+        DrawRectangle(screenW - 430, 336, 390, 160, Fade(BLACK, 0.72f));
+        DrawRectangleLines(screenW - 430, 336, 390, 160, stone.consecrated ? Color{ 244, 214, 144, 255 } : Color{ 118, 132, 150, 255 });
+        DrawText("ROAD WAYSTONE", screenW - 410, 352, 28, { 236, 228, 210, 255 });
+        DrawText(stone.consecrated ? "STATUS // CONSECRATED" : "STATUS // DORMANT", screenW - 410, 386, 22, stone.consecrated ? Color{ 244, 214, 144, 255 } : Color{ 170, 180, 194, 255 });
+        DrawText(consecratedWaystones >= 2 ? "Sanctum bell active // Crownfire cost reduced" : "Consecrate more stones to awaken the sanctum bell", screenW - 410, 416, 20, { 206, 212, 220, 255 });
+        DrawText(stone.consecrated ? "Already part of the holy march" : "Press C // cost 8 Iron and 14 Ember", screenW - 410, 444, 20, { 220, 198, 136, 255 });
     }
     else if (hoveredTowerIndex >= 0 && hoveredTowerIndex < (int)towers.size()) {
         const Tower& tower = towers[hoveredTowerIndex];
@@ -2664,21 +2866,21 @@ void Game::DrawUi() const {
         bool blessed = IsTowerBlessed(tower);
         int wardLevel = GetTowerBastionWardLevel(tower);
 
-        DrawRectangle(screenW - 430, 318, 390, 234, Fade(BLACK, 0.72f));
-        DrawRectangleLines(screenW - 430, 318, 390, 234, wardLevel > 0 ? Color{ 232, 208, 150, 255 } : (blessed ? Color{ 244, 214, 144, 255 } : tower.color));
-        DrawText(TowerLabel(tower.type), screenW - 410, 334, 28, { 236, 228, 210, 255 });
-        DrawText(TextFormat("LEVEL %d", tower.level), screenW - 410, 368, 22, { 206, 212, 220, 255 });
-        DrawText(TextFormat("DAMAGE %d%s", tower.damage, blessed ? " + BLESSING" : ""), screenW - 410, 396, 22, blessed ? Color{ 244, 214, 144, 255 } : Color{ 206, 212, 220, 255 });
-        DrawText(TextFormat("RANGE %.1f   RATE %.2f", tower.range, tower.maxCooldown), screenW - 410, 424, 22, { 206, 212, 220, 255 });
-        DrawText(TextFormat("BASTION WARD %d", wardLevel), screenW - 410, 452, 20, wardLevel > 0 ? Color{ 232, 208, 150, 255 } : Color{ 150, 156, 164, 255 });
-        DrawText(TextFormat("COUNTER // %s", (waveOmen.find("HOUND") != std::string::npos) ? "WATCHBOW + BARRICADE" : (waveOmen.find("CHANT") != std::string::npos ? "CENSER + SPIRE" : "BALANCED FIRE")), screenW - 410, 476, 20, { 198, 208, 214, 255 });
+        DrawRectangle(screenW - 430, 336, 390, 234, Fade(BLACK, 0.72f));
+        DrawRectangleLines(screenW - 430, 336, 390, 234, wardLevel > 0 ? Color{ 232, 208, 150, 255 } : (blessed ? Color{ 244, 214, 144, 255 } : tower.color));
+        DrawText(TowerLabel(tower.type), screenW - 410, 352, 28, { 236, 228, 210, 255 });
+        DrawText(TextFormat("LEVEL %d", tower.level), screenW - 410, 386, 22, { 206, 212, 220, 255 });
+        DrawText(TextFormat("DAMAGE %d%s", tower.damage, blessed ? " + BLESSING" : ""), screenW - 410, 414, 22, blessed ? Color{ 244, 214, 144, 255 } : Color{ 206, 212, 220, 255 });
+        DrawText(TextFormat("RANGE %.1f   RATE %.2f", tower.range, tower.maxCooldown), screenW - 410, 442, 22, { 206, 212, 220, 255 });
+        DrawText(TextFormat("BASTION WARD %d", wardLevel), screenW - 410, 470, 20, wardLevel > 0 ? Color{ 232, 208, 150, 255 } : Color{ 150, 156, 164, 255 });
+        DrawText(TextFormat("COUNTER // %s", (waveOmen.find("HOUND") != std::string::npos) ? "WATCHBOW + BARRICADE" : (waveOmen.find("CHANT") != std::string::npos ? "CENSER + SPIRE" : "BALANCED FIRE")), screenW - 410, 494, 20, { 198, 208, 214, 255 });
         if (tower.level < 3) {
-            DrawText(TextFormat("U UPGRADE // G%d I%d E%d", costGold, costIron, costEmber), screenW - 410, 500, 20, { 220, 198, 136, 255 });
+            DrawText(TextFormat("U UPGRADE // G%d I%d E%d", costGold, costIron, costEmber), screenW - 410, 520, 20, { 220, 198, 136, 255 });
         }
         else {
-            DrawText("MAX CONSECRATION REACHED", screenW - 410, 500, 20, { 220, 198, 136, 255 });
+            DrawText("MAX CONSECRATION REACHED", screenW - 410, 520, 20, { 220, 198, 136, 255 });
         }
-        DrawText(TextFormat("X SELL // G%d I%d E%d", sellGold, sellIron, sellEmber), screenW - 410, 524, 20, { 196, 180, 156, 255 });
+        DrawText(TextFormat("X SELL // G%d I%d E%d", sellGold, sellIron, sellEmber), screenW - 410, 544, 20, { 196, 180, 156, 255 });
     }
 
     if (stormFlash > 0.0f) {
@@ -2690,7 +2892,7 @@ void Game::DrawUi() const {
         const char* title = "THE PROCESSION HAS FALLEN";
         int w = MeasureText(title, 54);
         DrawText(title, screenW / 2 - w / 2, screenH / 2 - 80, 54, { 210, 84, 84, 255 });
-        DrawText(TextFormat("LAST RUN ASH +%d   BEST WAVE %d", legacyAshEarnedThisRun, legacy.highestWave), screenW / 2 - 180, screenH / 2 - 14, 24, { 214, 196, 142, 255 });
+        DrawText(TextFormat("LAST RUN ASH +%d   BEST WAVE %d   DIRECTIVES %d", legacyAshEarnedThisRun, legacy.highestWave, legacy.directivesCompleted), screenW / 2 - 240, screenH / 2 - 14, 24, { 214, 196, 142, 255 });
         DrawText(hasSuspendedChronicle ? "PRESS L TO RESTORE THE LAST BUILD-PHASE CHRONICLE" : "NO CHRONICLE AVAILABLE", screenW / 2 - 250, screenH / 2 + 18, 22, hasSuspendedChronicle ? Color{ 170, 198, 220, 255 } : Color{ 138, 142, 146, 255 });
         DrawText("PRESS ENTER TO BEGIN A NEW PROCESSION", screenW / 2 - 210, screenH / 2 + 48, 22, { 228, 220, 208, 255 });
     }
