@@ -113,9 +113,9 @@ private:
 
     Camera3D camera{};
     Vector3 cameraFocus = { 0.0f, 0.0f, 0.0f };
-    float cameraZoom = 48.0f;
-    float cameraMinZoom = 32.0f;
-    float cameraMaxZoom = 82.0f;
+    float cameraZoom = 56.0f;
+    float cameraMinZoom = 36.0f;
+    float cameraMaxZoom = 94.0f;
 
     GridMap grid;
     Fortress fortress;
