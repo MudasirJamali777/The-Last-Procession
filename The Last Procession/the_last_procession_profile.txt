@@ -1,7 +1,7 @@
 TLP_PROFILE_V1
 ash 1251
 highestWave 13
-runsStarted 1
+runsStarted 2
 waystones 2
 breakers 3
 directives 13

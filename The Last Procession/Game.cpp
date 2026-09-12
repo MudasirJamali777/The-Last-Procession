@@ -7,6 +7,7 @@
 namespace {
     const char* kProfileSavePath = "the_last_procession_profile.txt";
     const char* kSuspendSavePath = "the_last_procession_suspend.txt";
+    const char* kSuspendSaveHeader = "TLP_RUN_V2";
 }
 
 Game::Game() {
@@ -25,7 +26,7 @@ Game::Game() {
 
     SetTargetFPS(60);
 
-    camera.position = { 40.0f, 34.0f, 40.0f };
+    camera.position = { 52.0f, 42.0f, 52.0f };
     camera.target = { 0.0f, 0.45f, 0.0f };
     camera.up = { 0.0f, 1.0f, 0.0f };
     camera.fovy = 36.0f;
@@ -79,13 +80,13 @@ void Game::ResetRun(bool preserveSuspend) {
     state = PlayState::BuildPhase;
     buildChoice = BuildChoice::WatchbowNest;
     announcement = preserveSuspend
-        ? "BATCH 14 // ROYAL DIRECTIVES, PRESS L TO RESTORE YOUR CHRONICLE"
-        : "BATCH 15 // LIVING BATTLEFIELD AND ADAPTIVE PROCESSION";
+        ? "BATCH 16 // GRAND SHRINE MAP, PRESS L TO RESTORE YOUR CHRONICLE"
+        : "BATCH 16 // GRAND SHRINE MAP AND BORDERLANDS";
     announcementTimer = 5.2f;
     hoveredValid = false;
     hoveredCell = { -1, -1 };
     hoveredTowerIndex = -1;
-    cameraZoom = 40.0f;
+    cameraZoom = 48.0f;
     BuildMap();
     fortress.gateMaxHp += legacy.rampartRank * 22;
     fortress.gateHp = fortress.gateMaxHp;
@@ -176,14 +177,14 @@ bool Game::HasSuspendedRun() const {
 
     std::string header;
     in >> header;
-    return header == "TLP_RUN_V1";
+    return header == kSuspendSaveHeader;
 }
 
 void Game::SaveSuspendedRun() const {
     std::ofstream out(kSuspendSavePath, std::ios::trunc);
     if (!out) return;
 
-    out << "TLP_RUN_V1\n";
+    out << kSuspendSaveHeader << "\n";
     out << "wave " << wave.number << "\n";
     out << "gold " << gold << "\n";
     out << "iron " << iron << "\n";
@@ -216,7 +217,7 @@ bool Game::LoadSuspendedRun() {
 
     std::string header;
     in >> header;
-    if (header != "TLP_RUN_V1") return false;
+    if (header != kSuspendSaveHeader) return false;
 
     struct SavedStone { int x = 0; int y = 0; int consecrated = 0; };
     struct SavedBastion { int x = 0; int y = 0; int laneIndex = 0; int level = 0; float cooldown = 0.0f; };
@@ -545,24 +546,31 @@ const char* Game::GetLegacyUpgradeLabel(int slot) const {
 }
 
 void Game::BuildMap() {
-    grid.width = 44;
-    grid.height = 34;
+    grid.width = 60;
+    grid.height = 46;
     grid.cellSize = 2.4f;
-    grid.origin = { -52.8f, 0.0f, -40.8f };
+    grid.origin = { -72.0f, 0.0f, -55.2f };
     grid.tiles.assign((size_t)grid.width * (size_t)grid.height, GridTile{});
     props.clear();
     waystones.clear();
     bastions.clear();
+
+    const int shrineCx = 30;
+    const int shrineCy = 23;
 
     for (int y = 0; y < grid.height; ++y) {
         for (int x = 0; x < grid.width; ++x) {
             GridTile& tile = grid.At(x, y);
             tile.kind = TileKind::Buildable;
             tile.occupied = false;
-            float ridgeX = std::fabs((float)x - (float)grid.width * 0.5f) * 0.006f;
-            float ridgeY = std::fabs((float)y - (float)grid.height * 0.5f) * 0.005f;
-            float variation = 0.02f * (float)((x * 3 + y * 5) % 4);
-            tile.height = 0.16f + ridgeX + ridgeY + variation;
+
+            float dx = std::fabs((float)x - (float)shrineCx);
+            float dy = std::fabs((float)y - (float)shrineCy);
+            float basin = 0.14f + dx * 0.0024f + dy * 0.0030f;
+            float terrace = (((x / 5) + (y / 4)) % 2 == 0) ? 0.00f : 0.02f;
+            float northRise = (y < 10) ? (float)(10 - y) * 0.018f : 0.0f;
+            float southRise = (y > grid.height - 11) ? (float)(y - (grid.height - 11)) * 0.018f : 0.0f;
+            tile.height = basin + terrace + northRise + southRise;
         }
     }
 
@@ -588,23 +596,32 @@ void Game::BuildMap() {
         }
         };
 
-    addSegment(lanes[0], 0, 5, 10, 5);
-    addSegment(lanes[0], 10, 5, 16, 6);
-    addSegment(lanes[0], 16, 6, 21, 8);
-    addSegment(lanes[0], 21, 8, 26, 11);
-    addSegment(lanes[0], 26, 11, 28, 16);
+    addSegment(lanes[0], 3, 8, 10, 8);
+    addSegment(lanes[0], 10, 8, 16, 10);
+    addSegment(lanes[0], 16, 10, 22, 13);
+    addSegment(lanes[0], 22, 13, 26, 16);
+    addSegment(lanes[0], 26, 16, 28, 18);
+    addSegment(lanes[0], 28, 18, 34, 18);
+    addSegment(lanes[0], 34, 18, 40, 19);
+    addSegment(lanes[0], 40, 19, 46, 23);
 
-    addSegment(lanes[1], 0, 16, 10, 16);
-    addSegment(lanes[1], 10, 16, 16, 16);
-    addSegment(lanes[1], 16, 16, 22, 16);
-    addSegment(lanes[1], 22, 16, 26, 16);
-    addSegment(lanes[1], 26, 16, 28, 16);
+    addSegment(lanes[1], 3, 23, 11, 23);
+    addSegment(lanes[1], 11, 23, 18, 23);
+    addSegment(lanes[1], 18, 23, 23, 24);
+    addSegment(lanes[1], 23, 24, 26, 26);
+    addSegment(lanes[1], 26, 26, 30, 27);
+    addSegment(lanes[1], 30, 27, 36, 27);
+    addSegment(lanes[1], 36, 27, 42, 25);
+    addSegment(lanes[1], 42, 25, 46, 23);
 
-    addSegment(lanes[2], 0, 28, 10, 28);
-    addSegment(lanes[2], 10, 28, 16, 25);
-    addSegment(lanes[2], 16, 25, 21, 22);
-    addSegment(lanes[2], 21, 22, 26, 19);
-    addSegment(lanes[2], 26, 19, 28, 16);
+    addSegment(lanes[2], 3, 37, 10, 37);
+    addSegment(lanes[2], 10, 37, 17, 35);
+    addSegment(lanes[2], 17, 35, 23, 32);
+    addSegment(lanes[2], 23, 32, 27, 29);
+    addSegment(lanes[2], 27, 29, 32, 28);
+    addSegment(lanes[2], 32, 28, 37, 27);
+    addSegment(lanes[2], 37, 27, 42, 26);
+    addSegment(lanes[2], 42, 26, 46, 23);
 
     for (const std::vector<GridCoord>& lane : lanes) {
         for (int i = 0; i < (int)lane.size(); ++i) {
@@ -613,15 +630,15 @@ void Game::BuildMap() {
             GridTile& tile = grid.At(c.x, c.y);
             tile.kind = (i == 0) ? TileKind::Spawn : TileKind::Road;
             tile.occupied = false;
-            tile.height = (i == 0) ? 0.05f : 0.07f;
+            tile.height = (i == 0) ? 0.05f : 0.06f;
         }
     }
 
-    fortress.gateCell = { 28, 16 };
-    fortress.coreCell = { 35, 16 };
+    fortress.gateCell = { 46, 23 };
+    fortress.coreCell = { 54, 23 };
 
-    for (int y = 11; y <= 21; ++y) {
-        for (int x = 31; x <= 40; ++x) {
+    for (int y = 15; y <= 31; ++y) {
+        for (int x = 49; x <= 58; ++x) {
             GridTile& tile = grid.At(x, y);
             tile.kind = TileKind::Fortress;
             tile.occupied = true;
@@ -630,8 +647,10 @@ void Game::BuildMap() {
     }
 
     const GridCoord courtRoad[] = {
-        { 28, 16 }, { 29, 16 }, { 30, 16 }, { 31, 16 }, { 32, 16 }, { 33, 16 },
-        { 31, 15 }, { 31, 17 }, { 32, 15 }, { 32, 17 }, { 33, 15 }, { 33, 17 }
+        { 46, 23 }, { 47, 23 }, { 48, 23 }, { 49, 23 }, { 50, 23 }, { 51, 23 }, { 52, 23 }, { 53, 23 },
+        { 49, 22 }, { 50, 22 }, { 51, 22 }, { 52, 22 },
+        { 49, 24 }, { 50, 24 }, { 51, 24 }, { 52, 24 },
+        { 50, 21 }, { 50, 25 }
     };
     for (const GridCoord& c : courtRoad) {
         GridTile& tile = grid.At(c.x, c.y);
@@ -640,22 +659,78 @@ void Game::BuildMap() {
         tile.height = 0.05f;
     }
 
-    auto blockBuildable = [&](int x, int y) {
+    auto setTerrainBlocked = [&](int x, int y, float height) {
         if (!grid.InBounds(x, y)) return;
         GridTile& tile = grid.At(x, y);
-        if (tile.kind == TileKind::Buildable) {
-            tile.kind = TileKind::Blocked;
-            tile.occupied = true;
-            tile.height = 0.42f;
+        if (tile.kind == TileKind::Road || tile.kind == TileKind::Spawn || tile.kind == TileKind::Fortress) return;
+        tile.kind = TileKind::Blocked;
+        tile.occupied = true;
+        tile.height = std::max(tile.height, height);
+        };
+
+    auto liftTerrainEllipse = [&](int cx, int cy, float rx, float ry, float peak, float blockThreshold) {
+        for (int y = 0; y < grid.height; ++y) {
+            for (int x = 0; x < grid.width; ++x) {
+                float nx = ((float)x - (float)cx) / rx;
+                float ny = ((float)y - (float)cy) / ry;
+                float d = nx * nx + ny * ny;
+                if (d > 1.0f) continue;
+
+                GridTile& tile = grid.At(x, y);
+                if (tile.kind == TileKind::Road || tile.kind == TileKind::Spawn || tile.kind == TileKind::Fortress) continue;
+
+                float rise = (1.0f - d) * peak;
+                tile.height = std::max(tile.height, 0.22f + rise);
+                if (d <= blockThreshold && tile.kind == TileKind::Buildable) {
+                    tile.kind = TileKind::Blocked;
+                    tile.occupied = true;
+                }
+            }
         }
         };
+
+    for (int y = 0; y < grid.height; ++y) {
+        for (int x = 0; x < grid.width; ++x) {
+            int distLeft = x;
+            int distRight = (grid.width - 1) - x;
+            int distTop = y;
+            int distBottom = (grid.height - 1) - y;
+            int edgeDist = std::min(std::min(distLeft, distRight), std::min(distTop, distBottom));
+            if (edgeDist < 3) {
+                float edgeHeight = 0.78f + (float)(2 - edgeDist) * 0.18f + 0.03f * (float)((x + y) % 2);
+                setTerrainBlocked(x, y, edgeHeight);
+            }
+        }
+    }
+
+    liftTerrainEllipse(15, 9, 6.8f, 4.2f, 0.84f, 0.42f);
+    liftTerrainEllipse(24, 14, 5.4f, 3.4f, 0.54f, 0.26f);
+    liftTerrainEllipse(41, 10, 5.8f, 3.6f, 0.72f, 0.36f);
+    liftTerrainEllipse(18, 37, 7.2f, 4.2f, 0.80f, 0.42f);
+    liftTerrainEllipse(35, 35, 6.4f, 4.0f, 0.66f, 0.30f);
+    liftTerrainEllipse(30, 23, 3.4f, 2.6f, 0.52f, 0.68f);
+
+    for (int y = 18; y <= 28; ++y) {
+        for (int x = 24; x <= 36; ++x) {
+            if (!grid.InBounds(x, y)) continue;
+            GridTile& tile = grid.At(x, y);
+            if (tile.kind == TileKind::Road || tile.kind == TileKind::Spawn || tile.kind == TileKind::Fortress) continue;
+
+            float dx = std::fabs((float)x - (float)shrineCx);
+            float dy = std::fabs((float)y - (float)shrineCy);
+            if (dx <= 6.0f && dy <= 5.0f) {
+                tile.height = std::max(tile.height, 0.24f + 0.02f * (6.0f - dx) + 0.015f * (5.0f - dy));
+            }
+        }
+    }
 
     auto addWaystone = [&](int x, int y) {
         if (!grid.InBounds(x, y)) return;
         GridTile& tile = grid.At(x, y);
+        if (tile.kind == TileKind::Road || tile.kind == TileKind::Spawn || tile.kind == TileKind::Fortress) return;
         tile.kind = TileKind::Blocked;
         tile.occupied = false;
-        tile.height = std::max(tile.height, 0.26f);
+        tile.height = std::max(tile.height, 0.28f);
         waystones.push_back({ { x, y }, false });
         };
 
@@ -668,46 +743,54 @@ void Game::BuildMap() {
         bastions.push_back({ { x, y }, laneIndex, 0, 0.0f });
         };
 
-    for (int x = 2; x <= 18; x += 4) blockBuildable(x, 2 + (x % 3));
-    for (int x = 4; x <= 22; x += 5) blockBuildable(x, 10 + (x % 4));
-    for (int x = 6; x <= 24; x += 4) blockBuildable(x, 30 - (x % 5));
-    for (int y = 4; y <= 28; y += 4) blockBuildable(38, y);
-    for (int y = 6; y <= 26; y += 5) blockBuildable(41, y);
-    blockBuildable(27, 10);
-    blockBuildable(27, 22);
-    blockBuildable(30, 9);
-    blockBuildable(30, 23);
+    const int pineTrees[][2] = {
+        { 11, 6 }, { 14, 7 }, { 17, 6 }, { 20, 8 }, { 15, 11 }, { 22, 10 },
+        { 12, 39 }, { 16, 38 }, { 19, 40 }, { 22, 37 }, { 25, 35 }, { 29, 35 },
+        { 38, 8 }, { 43, 8 }, { 46, 10 }, { 34, 36 }, { 39, 34 }, { 43, 35 }
+    };
+    for (const auto& p : pineTrees) AddProp(PropType::PineTree, p[0], p[1], true);
 
-    int deadTrees[][2] = { {2,3},{6,2},{10,3},{14,2},{18,3},{8,12},{16,10},{12,29},{20,27},{38,8},{41,11},{38,24} };
-    for (auto& p : deadTrees) AddProp(PropType::DeadTree, p[0], p[1], true);
-    int graves[][2] = { {5,31},{9,31},{13,31},{38,5},{41,6},{38,28},{41,27},{39,16} };
-    for (auto& p : graves) AddProp(PropType::GraveMarker, p[0], p[1], true);
-    int rubble[][2] = { {4,11},{9,13},{15,12},{18,28},{27,10},{27,22},{30,9},{30,23} };
-    for (auto& p : rubble) AddProp(PropType::RubblePile, p[0], p[1], true);
-    int carts[][2] = { {29,11},{29,21},{41,14},{41,18} };
-    for (auto& p : carts) AddProp(PropType::CartWreck, p[0], p[1], true);
-    int braziers[][2] = { {31,12},{31,20},{34,11},{34,21},{40,12},{40,20},{29,14},{29,18} };
-    for (auto& p : braziers) AddProp(PropType::Brazier, p[0], p[1], false);
-    int banners[][2] = { {32,11},{37,11},{32,21},{37,21},{40,14},{40,18} };
-    for (auto& p : banners) AddProp(PropType::BannerPole, p[0], p[1], false);
+    const int deadTrees[][2] = {
+        { 5, 5 }, { 6, 12 }, { 5, 23 }, { 6, 34 }, { 8, 41 },
+        { 46, 5 }, { 53, 8 }, { 56, 12 }, { 54, 35 }, { 49, 40 }
+    };
+    for (const auto& p : deadTrees) AddProp(PropType::DeadTree, p[0], p[1], true);
 
-    addWaystone(24, 8);
-    addWaystone(24, 24);
-    addWaystone(29, 13);
+    const int graves[][2] = {
+        { 9, 18 }, { 10, 28 }, { 24, 17 }, { 25, 30 }, { 44, 18 }, { 44, 28 }, { 52, 23 }
+    };
+    for (const auto& p : graves) AddProp(PropType::GraveMarker, p[0], p[1], true);
 
-    addBastion(32, 12, 0);
-    addBastion(38, 16, 1);
-    addBastion(32, 20, 2);
+    const int rubble[][2] = {
+        { 12, 15 }, { 20, 13 }, { 27, 17 }, { 30, 29 }, { 37, 18 }, { 39, 27 }, { 46, 19 }, { 46, 27 }
+    };
+    for (const auto& p : rubble) AddProp(PropType::RubblePile, p[0], p[1], false);
 
-    int extraBraziers[][2] = { {6,7},{12,6},{18,8},{7,26},{13,27},{18,25},{23,6},{23,28},{35,6},{35,27} };
-    for (auto& p : extraBraziers) AddProp(PropType::Brazier, p[0], p[1], false);
-    int extraBanners[][2] = { {14,8},{14,24},{22,16},{26,8},{26,24} };
-    for (auto& p : extraBanners) AddProp(PropType::BannerPole, p[0], p[1], false);
-    int extraRubble[][2] = { {11,9},{17,14},{20,20},{24,26},{34,8},{36,23} };
-    for (auto& p : extraRubble) AddProp(PropType::RubblePile, p[0], p[1], false);
+    const int carts[][2] = { { 49, 18 }, { 49, 28 }, { 56, 20 }, { 56, 26 } };
+    for (const auto& p : carts) AddProp(PropType::CartWreck, p[0], p[1], true);
 
-    cameraFocus = grid.CellCenter(21, 16);
+    const int braziers[][2] = {
+        { 27, 20 }, { 33, 20 }, { 27, 26 }, { 33, 26 },
+        { 47, 20 }, { 47, 26 }, { 51, 18 }, { 51, 28 }, { 54, 17 }, { 54, 29 }
+    };
+    for (const auto& p : braziers) AddProp(PropType::Brazier, p[0], p[1], false);
+
+    const int banners[][2] = {
+        { 11, 8 }, { 11, 23 }, { 11, 37 }, { 29, 18 }, { 31, 27 }, { 45, 23 }, { 53, 15 }, { 53, 31 }
+    };
+    for (const auto& p : banners) AddProp(PropType::BannerPole, p[0], p[1], false);
+
+    addWaystone(25, 20);
+    addWaystone(26, 31);
+    addWaystone(41, 23);
+
+    addBastion(51, 17, 0);
+    addBastion(56, 23, 1);
+    addBastion(51, 29, 2);
+
+    cameraFocus = grid.CellCenter(shrineCx + 1, shrineCy);
 }
+
 
 void Game::BuildWave(int waveNumber) {
     wave = WaveState{};
@@ -1214,20 +1297,28 @@ void Game::UpdateCamera(float dt) {
     if (IsKeyDown(KEY_W)) cameraFocus.z -= move;
     if (IsKeyDown(KEY_S)) cameraFocus.z += move;
 
-    cameraZoom -= GetMouseWheelMove() * 2.2f;
+    cameraZoom -= GetMouseWheelMove() * 2.4f;
     cameraZoom = ClampFloat(cameraZoom, cameraMinZoom, cameraMaxZoom);
 
-    float minX = grid.origin.x + 22.0f;
-    float maxX = grid.origin.x + grid.width * grid.cellSize - 22.0f;
-    float minZ = grid.origin.z + 20.0f;
-    float maxZ = grid.origin.z + grid.height * grid.cellSize - 20.0f;
+    float xMargin = 14.0f + cameraZoom * 0.42f;
+    float zMargin = 12.0f + cameraZoom * 0.38f;
+    float maxXMargin = grid.width * grid.cellSize * 0.38f;
+    float maxZMargin = grid.height * grid.cellSize * 0.38f;
+    if (xMargin > maxXMargin) xMargin = maxXMargin;
+    if (zMargin > maxZMargin) zMargin = maxZMargin;
+
+    float minX = grid.origin.x + xMargin;
+    float maxX = grid.origin.x + grid.width * grid.cellSize - xMargin;
+    float minZ = grid.origin.z + zMargin;
+    float maxZ = grid.origin.z + grid.height * grid.cellSize - zMargin;
     cameraFocus.x = ClampFloat(cameraFocus.x, minX, maxX);
     cameraFocus.z = ClampFloat(cameraFocus.z, minZ, maxZ);
 
     camera.target = { cameraFocus.x, 0.45f, cameraFocus.z };
-    camera.position = { cameraFocus.x + cameraZoom, cameraZoom * 0.86f, cameraFocus.z + cameraZoom };
-    camera.fovy = 36.0f;
+    camera.position = { cameraFocus.x + cameraZoom, cameraZoom * 0.84f, cameraFocus.z + cameraZoom * 0.96f };
+    camera.fovy = 35.0f;
 }
+
 
 void Game::UpdateHoverCell() {
     hoveredValid = false;
@@ -2401,8 +2492,21 @@ void Game::Draw() const {
 void Game::DrawWorld() const {
     BeginMode3D(camera);
 
-    DrawPlane({ 0.0f, -0.08f, 0.0f }, { 240.0f, 240.0f }, { 24, 28, 34, 255 });
-    DrawPlane({ 0.0f, -0.04f, 0.0f }, { 190.0f, 190.0f }, { 34, 40, 32, 255 });
+    Vector3 mapCenter = {
+        grid.origin.x + grid.width * grid.cellSize * 0.5f,
+        0.0f,
+        grid.origin.z + grid.height * grid.cellSize * 0.5f
+    };
+    float outerW = grid.width * grid.cellSize + 120.0f;
+    float outerH = grid.height * grid.cellSize + 120.0f;
+    float midW = grid.width * grid.cellSize + 58.0f;
+    float midH = grid.height * grid.cellSize + 58.0f;
+    float nearW = grid.width * grid.cellSize + 18.0f;
+    float nearH = grid.height * grid.cellSize + 18.0f;
+
+    DrawPlane({ mapCenter.x, -0.28f, mapCenter.z }, { outerW, outerH }, { 18, 22, 28, 255 });
+    DrawPlane({ mapCenter.x, -0.12f, mapCenter.z }, { midW, midH }, { 28, 32, 36, 255 });
+    DrawPlane({ mapCenter.x, -0.04f, mapCenter.z }, { nearW, nearH }, { 38, 44, 40, 255 });
 
     DrawTiles();
     DrawEnvironment();
@@ -2413,6 +2517,7 @@ void Game::DrawWorld() const {
 
     EndMode3D();
 }
+
 
 void Game::DrawTiles() const {
     auto isRoadAdjacent = [&](int x, int y) {
@@ -2429,50 +2534,87 @@ void Game::DrawTiles() const {
         return false;
         };
 
+    const int shrineCx = 30;
+    const int shrineCy = 23;
+
     for (int y = 0; y < grid.height; ++y) {
         for (int x = 0; x < grid.width; ++x) {
             const GridTile& tile = grid.At(x, y);
             Vector3 center = grid.CellCenter(x, y);
             center.y = tile.height * 0.5f - 0.05f;
 
-            bool northSector = y <= 9;
-            bool southSector = y >= 24;
-            bool fortressSector = (x >= 28 && y >= 10 && y <= 22);
             bool roadAdjacent = isRoadAdjacent(x, y);
-            int hash = (x * 73 + y * 91 + x * y * 17) & 255;
+            bool borderBand = (x < 4 || y < 4 || x >= grid.width - 4 || y >= grid.height - 4);
+            bool shrineCourt = (std::abs(x - shrineCx) <= 6 && std::abs(y - shrineCy) <= 5);
+            bool highland = tile.height >= 0.78f;
+            bool midland = tile.height >= 0.46f;
+            int hash = (x * 67 + y * 97 + x * y * 11) & 255;
 
-            Color tileColor = northSector ? Color{ 78, 92, 82, 255 } : (southSector ? Color{ 82, 90, 76, 255 } : Color{ 84, 96, 78, 255 });
-            Color topColor = northSector ? Color{ 96, 108, 96, 255 } : (southSector ? Color{ 100, 108, 90, 255 } : Color{ 94, 110, 90, 255 });
-            if (fortressSector) {
-                tileColor = { 86, 92, 102, 255 };
-                topColor = { 118, 124, 136, 255 };
+            Color tileColor = { 76, 86, 74, 255 };
+            Color topColor = { 98, 112, 96, 255 };
+
+            if (y <= 14) {
+                tileColor = { 74, 86, 76, 255 };
+                topColor = { 94, 108, 98, 255 };
+            }
+            else if (y >= 31) {
+                tileColor = { 80, 84, 72, 255 };
+                topColor = { 104, 110, 90, 255 };
+            }
+            else {
+                tileColor = { 82, 90, 76, 255 };
+                topColor = { 104, 116, 92, 255 };
+            }
+
+            if (shrineCourt && tile.kind == TileKind::Buildable) {
+                tileColor = { 78, 84, 82, 255 };
+                topColor = { 110, 114, 110, 255 };
             }
             if (roadAdjacent && tile.kind == TileKind::Buildable) {
-                topColor = Tint(topColor, 0.94f);
+                topColor = Tint(topColor, 0.95f);
             }
+            if (midland && tile.kind == TileKind::Buildable) {
+                topColor = Tint(topColor, 1.03f);
+            }
+            if (borderBand && tile.kind == TileKind::Buildable) {
+                tileColor = { 66, 72, 70, 255 };
+                topColor = { 90, 96, 94, 255 };
+            }
+
             if (tile.kind == TileKind::Road) {
                 tileColor = { 82, 70, 52, 255 };
-                topColor = { 136, 120, 88, 255 };
+                topColor = { 142, 124, 90, 255 };
                 if (state == PlayState::BattlePhase && omenLane >= 0) {
                     for (const GridCoord& step : lanes[omenLane]) {
                         if (step.x == x && step.y == y) {
-                            topColor = { 168, 110, 90, 255 };
+                            tileColor = { 92, 62, 54, 255 };
+                            topColor = { 176, 118, 96, 255 };
                             break;
                         }
                     }
                 }
             }
             else if (tile.kind == TileKind::Spawn) {
-                tileColor = { 82, 44, 44, 255 };
-                topColor = { 150, 82, 68, 255 };
+                tileColor = { 76, 42, 42, 255 };
+                topColor = { 150, 78, 64, 255 };
             }
             else if (tile.kind == TileKind::Fortress) {
-                tileColor = { 88, 94, 108, 255 };
-                topColor = { 126, 132, 144, 255 };
+                tileColor = { 90, 96, 108, 255 };
+                topColor = { 128, 134, 146, 255 };
             }
             else if (tile.kind == TileKind::Blocked) {
-                tileColor = northSector ? Color{ 58, 62, 66, 255 } : Color{ 54, 58, 60, 255 };
-                topColor = northSector ? Color{ 90, 94, 98, 255 } : Color{ 86, 90, 94, 255 };
+                if (highland || borderBand) {
+                    tileColor = { 56, 60, 64, 255 };
+                    topColor = { 92, 96, 102, 255 };
+                }
+                else if (shrineCourt) {
+                    tileColor = { 74, 78, 84, 255 };
+                    topColor = { 112, 116, 122, 255 };
+                }
+                else {
+                    tileColor = { 62, 66, 68, 255 };
+                    topColor = { 94, 98, 100, 255 };
+                }
             }
 
             if (hoveredValid && hoveredCell.x == x && hoveredCell.y == y) {
@@ -2499,64 +2641,73 @@ void Game::DrawTiles() const {
             }
 
             DrawCube(center, grid.cellSize * 0.98f, tile.height, grid.cellSize * 0.98f, tileColor);
-            DrawCube({ center.x, center.y + tile.height * 0.5f - 0.02f, center.z }, grid.cellSize * 0.88f, 0.06f, grid.cellSize * 0.88f, topColor);
+            DrawCube({ center.x, center.y + tile.height * 0.5f - 0.02f, center.z }, grid.cellSize * 0.90f, 0.06f, grid.cellSize * 0.90f, topColor);
             DrawCubeWires(center, grid.cellSize * 0.98f, tile.height, grid.cellSize * 0.98f, { 28, 32, 30, 255 });
 
             if (tile.kind == TileKind::Road || tile.kind == TileKind::Spawn) {
-                DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, grid.cellSize * 0.46f, 0.04f, grid.cellSize * 0.78f, { 154, 138, 104, 255 });
+                DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, grid.cellSize * 0.48f, 0.04f, grid.cellSize * 0.82f, { 164, 146, 110, 255 });
                 DrawCube({ center.x - grid.cellSize * 0.34f, center.y + tile.height * 0.5f, center.z }, 0.10f, 0.10f, grid.cellSize * 0.72f, { 70, 60, 46, 255 });
                 DrawCube({ center.x + grid.cellSize * 0.34f, center.y + tile.height * 0.5f, center.z }, 0.10f, 0.10f, grid.cellSize * 0.72f, { 70, 60, 46, 255 });
-                if (((x + y) % 5) == 0) {
-                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.05f, center.z }, grid.cellSize * 0.18f, 0.05f, grid.cellSize * 0.16f, { 190, 174, 128, 255 });
+                if (((x + y) % 6) == 0) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.05f, center.z }, grid.cellSize * 0.16f, 0.05f, grid.cellSize * 0.16f, { 194, 180, 134, 255 });
                 }
             }
             else if (tile.kind == TileKind::Fortress) {
                 if ((x + y) % 2 == 0) {
-                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.34f, 0.04f, grid.cellSize * 0.34f, { 156, 162, 176, 255 });
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.36f, 0.04f, grid.cellSize * 0.36f, { 158, 164, 176, 255 });
                 }
                 else {
-                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.70f, 0.03f, grid.cellSize * 0.08f, { 146, 152, 166, 255 });
-                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.08f, 0.03f, grid.cellSize * 0.70f, { 146, 152, 166, 255 });
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.72f, 0.03f, grid.cellSize * 0.08f, { 148, 154, 166, 255 });
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.08f, 0.03f, grid.cellSize * 0.72f, { 148, 154, 166, 255 });
+                }
+            }
+            else if (tile.kind == TileKind::Blocked) {
+                if (highland || borderBand) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.12f, center.z }, grid.cellSize * 0.62f, 0.22f, grid.cellSize * 0.62f, { 118, 120, 126, 255 });
+                    DrawCube({ center.x + 0.30f, center.y + tile.height * 0.5f + 0.22f, center.z - 0.18f }, 0.38f, 0.16f, 0.34f, { 82, 84, 88, 255 });
+                }
+                else if (shrineCourt) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, grid.cellSize * 0.72f, 0.05f, grid.cellSize * 0.72f, { 136, 140, 146, 255 });
                 }
             }
             else if (tile.kind == TileKind::Buildable && !tile.occupied) {
-                if (hash % 17 == 0) {
-                    DrawCube({ center.x - 0.24f, center.y + tile.height * 0.5f + 0.04f, center.z - 0.16f }, 0.24f, 0.08f, 0.18f, { 104, 98, 90, 255 });
-                    DrawCube({ center.x + 0.18f, center.y + tile.height * 0.5f + 0.03f, center.z + 0.12f }, 0.18f, 0.06f, 0.16f, { 86, 82, 78, 255 });
+                if (shrineCourt && (hash % 5 == 0)) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, 0.84f, 0.03f, 0.28f, { 118, 122, 120, 255 });
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, 0.28f, 0.03f, 0.84f, { 118, 122, 120, 255 });
                 }
-                else if (hash % 19 == 3) {
-                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, 0.72f, 0.02f, 0.20f, { 60, 64, 58, 255 });
-                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, 0.18f, 0.02f, 0.72f, { 60, 64, 58, 255 });
+                else if (!roadAdjacent && hash % 31 == 0) {
+                    DrawCube({ center.x - 0.20f, center.y + tile.height * 0.5f + 0.04f, center.z - 0.10f }, 0.26f, 0.08f, 0.18f, { 102, 96, 88, 255 });
+                    DrawCube({ center.x + 0.16f, center.y + tile.height * 0.5f + 0.03f, center.z + 0.12f }, 0.18f, 0.06f, 0.16f, { 86, 82, 78, 255 });
                 }
-                else if (hash % 23 == 5) {
-                    DrawCube({ center.x - 0.20f, center.y + tile.height * 0.5f + 0.06f, center.z + 0.08f }, 0.12f, 0.12f, 0.12f, { 96, 90, 78, 255 });
-                    DrawCube({ center.x + 0.06f, center.y + tile.height * 0.5f + 0.05f, center.z - 0.10f }, 0.10f, 0.10f, 0.10f, { 104, 96, 84, 255 });
-                    DrawCube({ center.x + 0.22f, center.y + tile.height * 0.5f + 0.04f, center.z + 0.12f }, 0.08f, 0.08f, 0.08f, { 84, 80, 72, 255 });
-                }
-                else if (hash % 29 == 11 && !roadAdjacent) {
-                    DrawCube({ center.x - 0.24f, center.y + tile.height * 0.5f + 0.06f, center.z }, 0.06f, 0.12f, 0.06f, { 92, 86, 70, 255 });
-                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.08f, center.z + 0.12f }, 0.06f, 0.16f, 0.06f, { 92, 86, 70, 255 });
-                    DrawCube({ center.x + 0.22f, center.y + tile.height * 0.5f + 0.05f, center.z - 0.10f }, 0.06f, 0.10f, 0.06f, { 92, 86, 70, 255 });
+                else if (hash % 47 == 7) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, 0.62f, 0.02f, 0.18f, { 62, 66, 60, 255 });
                 }
             }
         }
     }
 }
 
+
 void Game::DrawEnvironment() const {
     float cs = grid.cellSize;
-    Color borderColor = stormFlash > 0.08f ? Color{ 52, 60, 76, 255 } : Color{ 30, 34, 40, 255 };
+    Vector3 mapCenter = {
+        grid.origin.x + grid.width * cs * 0.5f,
+        0.0f,
+        grid.origin.z + grid.height * cs * 0.5f
+    };
+    Color outerRock = stormFlash > 0.08f ? Color{ 56, 64, 80, 255 } : Color{ 36, 40, 46, 255 };
 
-    for (int x = -1; x <= grid.width; ++x) {
-        float wx = grid.origin.x + x * cs + cs * 0.5f;
-        DrawCube({ wx, 2.8f, grid.origin.z - cs * 0.55f }, cs * 1.05f, 5.6f, cs * 1.2f, borderColor);
-        DrawCube({ wx, 2.8f, grid.origin.z + grid.height * cs + cs * 0.55f }, cs * 1.05f, 5.6f, cs * 1.2f, borderColor);
-    }
-    for (int y = 0; y < grid.height; ++y) {
-        float wz = grid.origin.z + y * cs + cs * 0.5f;
-        DrawCube({ grid.origin.x - cs * 0.55f, 2.8f, wz }, cs * 1.2f, 5.6f, cs * 1.05f, borderColor);
-        DrawCube({ grid.origin.x + grid.width * cs + cs * 0.55f, 2.8f, wz }, cs * 1.2f, 5.6f, cs * 1.05f, borderColor);
-    }
+    auto drawEscarpment = [&](float x, float y, float z, float sx, float sy, float sz, Color color) {
+        DrawCube({ x, y, z }, sx, sy, sz, color);
+        DrawCube({ x, y + sy * 0.42f, z }, sx * 0.74f, sy * 0.24f, sz * 0.74f, Tint(color, 1.08f));
+        DrawCubeWires({ x, y, z }, sx, sy, sz, Tint(color, 0.74f));
+        };
+
+    auto drawMountain = [&](float x, float z, float scale, Color rock) {
+        DrawCylinder({ x, 2.2f * scale, z }, 6.2f * scale, 2.2f * scale, 4.4f * scale, 10, rock);
+        DrawCylinder({ x, 4.8f * scale, z }, 3.0f * scale, 0.8f * scale, 3.2f * scale, 10, Tint(rock, 1.10f));
+        DrawCylinder({ x, 6.7f * scale, z }, 1.5f * scale, 0.2f * scale, 1.8f * scale, 10, Tint(rock, 1.22f));
+        };
 
     auto drawRoadArch = [&](int laneIndex, int cellX, int cellY, Color cloth) {
         if (!grid.InBounds(cellX, cellY)) return;
@@ -2565,26 +2716,26 @@ void Game::DrawEnvironment() const {
         float h = grid.At(cellX, cellY).height;
         Color archStone = omen ? Color{ 126, 112, 116, 255 } : Color{ 96, 100, 110, 255 };
         Color banner = omen ? Color{ 176, 70, 66, 255 } : cloth;
-        DrawCube({ c.x - 1.10f, h + 1.50f, c.z }, 0.34f, 2.8f, 0.34f, archStone);
-        DrawCube({ c.x + 1.10f, h + 1.50f, c.z }, 0.34f, 2.8f, 0.34f, archStone);
-        DrawCube({ c.x, h + 2.80f, c.z }, 2.50f, 0.30f, 0.42f, Tint(archStone, 1.14f));
-        DrawCube({ c.x + 0.12f, h + 2.25f, c.z }, 0.12f, 0.90f, 1.70f, banner);
+        DrawCube({ c.x - 1.10f, h + 1.60f, c.z }, 0.34f, 3.0f, 0.34f, archStone);
+        DrawCube({ c.x + 1.10f, h + 1.60f, c.z }, 0.34f, 3.0f, 0.34f, archStone);
+        DrawCube({ c.x, h + 3.02f, c.z }, 2.55f, 0.28f, 0.44f, Tint(archStone, 1.14f));
+        DrawCube({ c.x + 0.10f, h + 2.30f, c.z }, 0.12f, 1.00f, 1.74f, banner);
         if (omen) {
-            float beacon = 0.18f + 0.08f * std::sin(worldTime * 5.2f + (float)laneIndex);
-            DrawSphere({ c.x, h + 3.28f + beacon, c.z }, 0.22f + beacon * 0.55f, { 255, 164, 132, 255 });
+            float beacon = 0.20f + 0.08f * std::sin(worldTime * 5.2f + (float)laneIndex);
+            DrawSphere({ c.x, h + 3.52f + beacon, c.z }, 0.22f + beacon * 0.55f, { 255, 164, 132, 255 });
         }
         };
 
-    auto drawShrine = [&](int cellX, int cellY, bool lit) {
+    auto drawMinorShrine = [&](int cellX, int cellY, bool lit) {
         if (!grid.InBounds(cellX, cellY)) return;
         Vector3 c = grid.CellCenter(cellX, cellY);
         float h = grid.At(cellX, cellY).height;
-        DrawCube({ c.x, h + 0.26f, c.z }, 1.2f, 0.44f, 1.2f, { 74, 78, 86, 255 });
-        DrawCube({ c.x, h + 1.04f, c.z }, 0.42f, 1.12f, 0.42f, { 126, 130, 140, 255 });
-        DrawCube({ c.x, h + 1.72f, c.z }, 0.74f, 0.22f, 0.74f, { 152, 156, 166, 255 });
+        DrawCube({ c.x, h + 0.28f, c.z }, 1.24f, 0.46f, 1.24f, { 74, 78, 86, 255 });
+        DrawCube({ c.x, h + 1.08f, c.z }, 0.44f, 1.18f, 0.44f, { 126, 130, 140, 255 });
+        DrawCube({ c.x, h + 1.80f, c.z }, 0.78f, 0.22f, 0.78f, { 152, 156, 166, 255 });
         if (lit) {
-            float pulse = 0.10f + 0.05f * std::sin(worldTime * 3.2f + (float)(cellX + cellY));
-            DrawSphere({ c.x, h + 2.10f + pulse, c.z }, 0.18f + pulse * 0.25f, { 250, 206, 132, 255 });
+            float pulse = 0.10f + 0.05f * std::sin(worldTime * 3.0f + (float)(cellX + cellY));
+            DrawSphere({ c.x, h + 2.16f + pulse, c.z }, 0.18f + pulse * 0.25f, { 250, 206, 132, 255 });
         }
         };
 
@@ -2592,49 +2743,113 @@ void Game::DrawEnvironment() const {
         if (!grid.InBounds(cellX, cellY)) return;
         Vector3 c = grid.CellCenter(cellX, cellY);
         float h = grid.At(cellX, cellY).height;
-        DrawCube({ c.x, h + 0.40f, c.z }, sizeX, 0.80f, sizeZ, color);
-        DrawCubeWires({ c.x, h + 0.40f, c.z }, sizeX, 0.80f, sizeZ, Tint(color, 0.75f));
+        DrawCube({ c.x, h + 0.38f, c.z }, sizeX, 0.76f, sizeZ, color);
+        DrawCubeWires({ c.x, h + 0.38f, c.z }, sizeX, 0.76f, sizeZ, Tint(color, 0.75f));
         };
 
-    drawRoadArch(0, 10, 5, { 124, 42, 42, 255 });
-    drawRoadArch(1, 10, 16, { 124, 42, 42, 255 });
-    drawRoadArch(2, 10, 28, { 124, 42, 42, 255 });
-    drawRoadArch(1, 28, 16, { 176, 134, 72, 255 });
+    float west = grid.origin.x - cs * 1.7f;
+    float east = grid.origin.x + grid.width * cs + cs * 1.7f;
+    float north = grid.origin.z - cs * 1.7f;
+    float south = grid.origin.z + grid.height * cs + cs * 1.7f;
 
-    int shrineCells[][3] = {
-        {5, 7, 1}, {7, 25, 0}, {15, 30, 0}, {19, 4, 1}, {33, 7, 1}, {39, 27, 0}
-    };
-    for (auto& data : shrineCells) drawShrine(data[0], data[1], data[2] != 0);
-
-    drawLowWall(12, 11, 2.2f, 0.34f, { 92, 96, 104, 255 });
-    drawLowWall(18, 13, 2.6f, 0.34f, { 92, 96, 104, 255 });
-    drawLowWall(14, 21, 0.34f, 2.2f, { 96, 98, 104, 255 });
-    drawLowWall(21, 24, 2.0f, 0.34f, { 98, 90, 86, 255 });
-    drawLowWall(24, 22, 0.34f, 2.0f, { 98, 90, 86, 255 });
-    drawLowWall(8, 18, 1.8f, 0.34f, { 96, 92, 88, 255 });
-
-    for (int i = 0; i < 34; ++i) {
-        float orbit = worldTime * (0.26f + 0.02f * (float)i) + (float)i;
-        Vector3 mote = {
-            grid.origin.x + 4.0f + std::fmod(orbit * 5.6f + (float)(i * 7), grid.width * cs - 8.0f),
-            1.4f + 0.7f * std::sin(orbit * 1.8f),
-            grid.origin.z + 3.0f + std::fmod(orbit * 3.8f + (float)(i * 5), grid.height * cs - 6.0f)
-        };
-        Color moteColor = (stormFlash > 0.10f) ? Color{ 150, 166, 198, 180 } : Color{ 74, 82, 94, 160 };
-        DrawSphere(mote, 0.08f + 0.02f * std::sin(orbit * 2.2f), moteColor);
+    for (int i = 0; i < 8; ++i) {
+        float tx = grid.origin.x + 6.0f + (float)i * (grid.width * cs - 12.0f) / 7.0f;
+        float hA = 5.8f + 0.5f * (float)(i % 2);
+        float hB = 5.4f + 0.5f * (float)((i + 1) % 2);
+        drawEscarpment(tx, hA * 0.5f - 0.10f, north, 12.0f, hA, 6.0f, outerRock);
+        drawEscarpment(tx, hB * 0.5f - 0.10f, south, 12.0f, hB, 6.4f, outerRock);
+    }
+    for (int i = 0; i < 6; ++i) {
+        float tz = grid.origin.z + 8.0f + (float)i * (grid.height * cs - 16.0f) / 5.0f;
+        float hA = 5.0f + 0.6f * (float)(i % 2);
+        float hB = 5.6f + 0.4f * (float)((i + 1) % 2);
+        drawEscarpment(west, hA * 0.5f - 0.10f, tz, 6.6f, hA, 12.0f, outerRock);
+        drawEscarpment(east, hB * 0.5f - 0.10f, tz, 6.8f, hB, 12.0f, outerRock);
     }
 
-    Vector3 crowA = { grid.origin.x + 24.0f + 8.0f * std::sin(worldTime * 0.9f), 7.0f + 0.6f * std::sin(worldTime * 2.0f), grid.origin.z + 10.0f + 5.0f * std::cos(worldTime * 0.9f) };
-    Vector3 crowB = { grid.origin.x + 66.0f + 7.0f * std::cos(worldTime * 0.7f), 6.4f + 0.5f * std::sin(worldTime * 1.7f + 1.5f), grid.origin.z + 58.0f + 4.0f * std::sin(worldTime * 0.7f) };
+    drawMountain(grid.origin.x - 10.0f, grid.origin.z - 12.0f, 1.05f, { 52, 56, 62, 255 });
+    drawMountain(grid.origin.x - 12.0f, grid.origin.z + grid.height * cs + 12.0f, 1.00f, { 50, 54, 60, 255 });
+    drawMountain(grid.origin.x + grid.width * cs + 12.0f, grid.origin.z - 10.0f, 1.04f, { 54, 58, 64, 255 });
+    drawMountain(grid.origin.x + grid.width * cs + 14.0f, grid.origin.z + grid.height * cs + 10.0f, 1.08f, { 50, 54, 60, 255 });
+    drawMountain(grid.origin.x + 18.0f, grid.origin.z - 18.0f, 0.92f, { 58, 60, 66, 255 });
+    drawMountain(grid.origin.x + 30.0f, grid.origin.z + grid.height * cs + 18.0f, 0.90f, { 58, 60, 66, 255 });
+
+    drawRoadArch(0, 11, 8, { 124, 42, 42, 255 });
+    drawRoadArch(1, 11, 23, { 124, 42, 42, 255 });
+    drawRoadArch(2, 11, 37, { 124, 42, 42, 255 });
+    drawRoadArch(1, 46, 23, { 176, 134, 72, 255 });
+
+    drawMinorShrine(20, 18, true);
+    drawMinorShrine(20, 29, false);
+    drawMinorShrine(41, 14, true);
+    drawMinorShrine(39, 33, false);
+
+    {
+        Vector3 c = grid.CellCenter(30, 23);
+        float h = grid.At(30, 23).height;
+        float pulse = 0.10f * std::sin(worldTime * 2.6f) + (hymnTimer > 0.0f ? 0.10f : 0.0f) + stormFlash * 0.08f;
+        Color stoneA = { 82, 88, 96, 255 };
+        Color stoneB = { 118, 124, 134, 255 };
+
+        DrawCylinder({ c.x, h + 0.16f, c.z }, 4.8f, 5.2f, 0.32f, 20, stoneA);
+        DrawCylinder({ c.x, h + 0.54f, c.z }, 3.8f, 4.1f, 0.36f, 20, Tint(stoneA, 1.08f));
+        DrawCylinder({ c.x, h + 1.08f, c.z }, 2.3f, 2.7f, 0.64f, 20, stoneB);
+        DrawCube({ c.x - 3.2f, h + 0.28f, c.z }, 1.8f, 0.20f, 2.2f, { 122, 126, 132, 255 });
+        DrawCube({ c.x + 3.2f, h + 0.28f, c.z }, 1.8f, 0.20f, 2.2f, { 122, 126, 132, 255 });
+        DrawCube({ c.x, h + 0.28f, c.z - 3.2f }, 2.2f, 0.20f, 1.8f, { 122, 126, 132, 255 });
+        DrawCube({ c.x, h + 0.28f, c.z + 3.2f }, 2.2f, 0.20f, 1.8f, { 122, 126, 132, 255 });
+
+        float colX[4] = { -1.7f, 1.7f, -1.7f, 1.7f };
+        float colZ[4] = { -1.7f, -1.7f, 1.7f, 1.7f };
+        for (int i = 0; i < 4; ++i) {
+            DrawCube({ c.x + colX[i], h + 2.28f, c.z + colZ[i] }, 0.52f, 2.56f, 0.52f, stoneB);
+            DrawCube({ c.x + colX[i], h + 3.62f, c.z + colZ[i] }, 0.82f, 0.20f, 0.82f, Tint(stoneB, 1.10f));
+            float flame = 0.10f + 0.05f * std::sin(worldTime * 4.0f + (float)i * 1.3f);
+            DrawSphere({ c.x + colX[i], h + 4.02f + flame, c.z + colZ[i] }, 0.16f + flame * 0.35f, { 255, 204, 126, 255 });
+        }
+
+        DrawCube({ c.x, h + 2.10f, c.z }, 1.86f, 0.24f, 1.86f, { 168, 170, 176, 255 });
+        DrawCube({ c.x, h + 2.78f, c.z }, 0.58f, 1.02f, 0.58f, { 196, 198, 206, 255 });
+        DrawCube({ c.x, h + 3.40f, c.z }, 1.10f, 0.20f, 1.10f, { 214, 206, 186, 255 });
+        DrawSphere({ c.x, h + 4.10f + pulse, c.z }, 0.34f + pulse * 0.70f, { 244, 222, 156, 255 });
+        DrawSphere({ c.x, h + 4.36f + pulse * 1.4f, c.z }, 0.16f + pulse * 0.35f, { 255, 244, 204, 255 });
+        DrawCircle3D({ c.x, h + 0.10f, c.z }, 5.2f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade({ 220, 206, 162, 255 }, 0.10f));
+        if (sanctumPulseVisual > 0.0f) {
+            DrawCircle3D({ c.x, h + 0.12f, c.z }, 5.6f + (1.30f - sanctumPulseVisual) * 4.2f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade({ 244, 224, 168, 255 }, 0.16f * sanctumPulseVisual));
+        }
+    }
+
+    drawLowWall(15, 15, 2.8f, 0.34f, { 94, 96, 102, 255 });
+    drawLowWall(18, 31, 2.6f, 0.34f, { 94, 96, 102, 255 });
+    drawLowWall(36, 15, 0.34f, 2.4f, { 98, 100, 106, 255 });
+    drawLowWall(37, 31, 0.34f, 2.4f, { 98, 100, 106, 255 });
+    drawLowWall(43, 20, 2.0f, 0.34f, { 106, 98, 92, 255 });
+    drawLowWall(43, 27, 2.0f, 0.34f, { 106, 98, 92, 255 });
+
+    for (int i = 0; i < 26; ++i) {
+        float orbit = worldTime * (0.20f + 0.015f * (float)i) + (float)i;
+        Vector3 mote = {
+            grid.origin.x + 6.0f + std::fmod(orbit * 6.4f + (float)(i * 9), grid.width * cs - 12.0f),
+            1.5f + 0.7f * std::sin(orbit * 1.7f),
+            grid.origin.z + 5.0f + std::fmod(orbit * 4.3f + (float)(i * 7), grid.height * cs - 10.0f)
+        };
+        Color moteColor = (stormFlash > 0.10f) ? Color{ 150, 166, 198, 170 } : Color{ 74, 82, 94, 150 };
+        DrawSphere(mote, 0.08f + 0.02f * std::sin(orbit * 2.0f), moteColor);
+    }
+
+    Vector3 crowA = { mapCenter.x - 34.0f + 8.0f * std::sin(worldTime * 0.8f), 7.6f + 0.6f * std::sin(worldTime * 1.8f), mapCenter.z - 20.0f + 5.0f * std::cos(worldTime * 0.8f) };
+    Vector3 crowB = { mapCenter.x + 16.0f + 7.0f * std::cos(worldTime * 0.7f), 6.8f + 0.5f * std::sin(worldTime * 1.6f + 1.5f), mapCenter.z + 18.0f + 4.0f * std::sin(worldTime * 0.7f) };
+    Vector3 crowC = { mapCenter.x + 34.0f + 6.0f * std::sin(worldTime * 0.9f + 2.0f), 8.2f + 0.5f * std::cos(worldTime * 1.5f), mapCenter.z - 4.0f + 4.5f * std::cos(worldTime * 0.9f + 2.0f) };
     DrawSphere(crowA, 0.12f, { 18, 20, 24, 255 });
     DrawSphere(crowB, 0.12f, { 18, 20, 24, 255 });
+    DrawSphere(crowC, 0.12f, { 18, 20, 24, 255 });
 
     if (stormFlash > 0.04f) {
-        float lx[] = { grid.origin.x + 8.0f, grid.origin.x + 24.0f, grid.origin.x + 52.0f, grid.origin.x + 76.0f };
-        float lz[] = { grid.origin.z + 6.0f, grid.origin.z + 56.0f, grid.origin.z + 18.0f, grid.origin.z + 70.0f };
+        float lx[] = { mapCenter.x - 46.0f, mapCenter.x - 10.0f, mapCenter.x + 22.0f, mapCenter.x + 52.0f };
+        float lz[] = { mapCenter.z - 34.0f, mapCenter.z + 26.0f, mapCenter.z - 10.0f, mapCenter.z + 34.0f };
         for (int i = 0; i < 4; ++i) {
-            DrawCube({ lx[i], 8.8f, lz[i] }, 0.18f, 17.5f, 0.18f, Fade({ 214, 228, 255, 255 }, stormFlash * 0.65f));
-            DrawSphere({ lx[i], 17.5f, lz[i] }, 0.34f, Fade({ 236, 242, 255, 255 }, stormFlash * 0.55f));
+            DrawCube({ lx[i], 9.4f, lz[i] }, 0.18f, 18.5f, 0.18f, Fade({ 214, 228, 255, 255 }, stormFlash * 0.62f));
+            DrawSphere({ lx[i], 18.4f, lz[i] }, 0.36f, Fade({ 236, 242, 255, 255 }, stormFlash * 0.54f));
         }
     }
 
@@ -2650,9 +2865,9 @@ void Game::DrawEnvironment() const {
         DrawCube({ center.x, ground + 2.06f, center.z }, 0.74f, 0.34f, 0.74f, base);
         DrawSphere({ center.x, ground + 2.56f + pulse, center.z }, 0.22f + pulse * 0.28f, glow);
         if (stone.consecrated) {
-            DrawCircle3D({ center.x, ground + 0.06f, center.z }, 4.6f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(glow, 0.12f));
+            DrawCircle3D({ center.x, ground + 0.06f, center.z }, 4.8f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(glow, 0.12f));
             if (sanctumPulseVisual > 0.0f) {
-                DrawCircle3D({ center.x, ground + 0.08f, center.z }, 4.8f + (1.3f - sanctumPulseVisual) * 3.0f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(glow, 0.14f * sanctumPulseVisual));
+                DrawCircle3D({ center.x, ground + 0.08f, center.z }, 5.0f + (1.3f - sanctumPulseVisual) * 3.0f, { 1.0f, 0.0f, 0.0f }, 90.0f, Fade(glow, 0.14f * sanctumPulseVisual));
             }
         }
     }
@@ -2666,6 +2881,12 @@ void Game::DrawEnvironment() const {
             DrawCube({ center.x, center.y + 1.10f, center.z }, 0.42f, 2.0f, 0.42f, { 82, 62, 50, 255 });
             DrawCube({ center.x + 0.36f, center.y + 1.70f, center.z + 0.10f }, 0.92f, 0.16f, 0.16f, { 92, 70, 54, 255 });
             DrawCube({ center.x - 0.30f, center.y + 1.30f, center.z - 0.24f }, 0.76f, 0.16f, 0.16f, { 92, 70, 54, 255 });
+        }
+        else if (prop.type == PropType::PineTree) {
+            DrawCylinder({ center.x, center.y + 0.74f, center.z }, 0.18f, 0.24f, 1.48f, 8, { 90, 68, 50, 255 });
+            DrawCylinder({ center.x, center.y + 1.28f, center.z }, 0.88f, 0.18f, 1.24f, 8, { 52, 78, 54, 255 });
+            DrawCylinder({ center.x, center.y + 1.92f, center.z }, 0.68f, 0.10f, 1.06f, 8, { 62, 90, 62, 255 });
+            DrawCylinder({ center.x, center.y + 2.44f, center.z }, 0.46f, 0.04f, 0.82f, 8, { 74, 102, 72, 255 });
         }
         else if (prop.type == PropType::GraveMarker) {
             DrawCube({ center.x, center.y + 0.36f, center.z }, 0.88f, 0.72f, 0.24f, { 136, 142, 150, 255 });
@@ -2690,14 +2911,14 @@ void Game::DrawEnvironment() const {
             DrawSphere({ center.x, center.y + 1.02f + flicker, center.z }, 0.12f + flicker * 0.26f, { 255, 226, 164, 255 });
         }
         else if (prop.type == PropType::BannerPole) {
-            DrawCylinder({ center.x, center.y + 1.75f, center.z }, 0.10f, 0.10f, 3.2f, 6, { 126, 126, 138, 255 });
-            float sway = 0.18f * std::sin(worldTime * 2.5f + (float)prop.cell.x);
-            DrawCube({ center.x + 0.52f, center.y + 2.58f, center.z + sway }, 0.92f, 1.10f, 0.10f, { 124, 42, 42, 255 });
+            DrawCylinder({ center.x, center.y + 1.85f, center.z }, 0.10f, 0.10f, 3.4f, 6, { 126, 126, 138, 255 });
+            float sway = 0.18f * std::sin(worldTime * 2.4f + (float)prop.cell.x);
+            DrawCube({ center.x + 0.56f, center.y + 2.70f, center.z + sway }, 0.96f, 1.18f, 0.10f, { 124, 42, 42, 255 });
         }
     }
 
-    int emberPools[][2] = { {8, 7}, {15, 27}, {22, 12}, {25, 21}, {36, 24} };
-    for (auto& p : emberPools) {
+    const int emberPools[][2] = { { 16, 12 }, { 23, 34 }, { 37, 13 }, { 44, 31 } };
+    for (const auto& p : emberPools) {
         if (!grid.InBounds(p[0], p[1])) continue;
         Vector3 c = grid.CellCenter(p[0], p[1]);
         float h = grid.At(p[0], p[1]).height;
@@ -2705,6 +2926,7 @@ void Game::DrawEnvironment() const {
         DrawSphere({ c.x, h + 0.08f, c.z }, 0.16f + 0.04f * std::sin(worldTime * 2.8f + (float)p[0]), { 168, 94, 70, 255 });
     }
 }
+
 
 void Game::DrawFortress() const {
     Vector3 gate = grid.CellCenter(fortress.gateCell.x, fortress.gateCell.y);
@@ -2978,7 +3200,7 @@ void Game::DrawUi() const {
     DrawRectangle(22, 18, 1120, 214, Fade(BLACK, 0.68f));
     DrawRectangleLines(22, 18, 1120, 214, { 188, 156, 96, 255 });
     DrawText("THE LAST PROCESSION", 40, 30, 34, { 236, 228, 210, 255 });
-    DrawText("BATCH 15 // LIVING BATTLEFIELD AND ADAPTIVE PROCESSION", 40, 68, 20, { 196, 172, 118, 255 });
+    DrawText("BATCH 16 // GRAND SHRINE MAP AND BORDERLANDS", 40, 68, 20, { 196, 172, 118, 255 });
     DrawText(TextFormat("WAVE %d", wave.number), 40, 100, 24, { 188, 156, 96, 255 });
     DrawText(TextFormat("OMEN // %s", waveOmen.c_str()), 160, 100, 24, omenLane >= 0 ? Color{ 226, 136, 116, 255 } : Color{ 198, 208, 214, 255 });
     DrawText(TextFormat("GOLD %d   IRON %d   EMBER %d", gold, iron, ember), 40, 132, 22, { 210, 214, 204, 255 });
