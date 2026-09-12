@@ -80,7 +80,7 @@ void Game::ResetRun(bool preserveSuspend) {
     buildChoice = BuildChoice::WatchbowNest;
     announcement = preserveSuspend
         ? "BATCH 14 // ROYAL DIRECTIVES, PRESS L TO RESTORE YOUR CHRONICLE"
-        : "BATCH 14 // ROYAL DIRECTIVES AND FLAWLESS HONORS";
+        : "BATCH 15 // LIVING BATTLEFIELD AND ADAPTIVE PROCESSION";
     announcementTimer = 5.2f;
     hoveredValid = false;
     hoveredCell = { -1, -1 };
@@ -699,6 +699,13 @@ void Game::BuildMap() {
     addBastion(38, 16, 1);
     addBastion(32, 20, 2);
 
+    int extraBraziers[][2] = { {6,7},{12,6},{18,8},{7,26},{13,27},{18,25},{23,6},{23,28},{35,6},{35,27} };
+    for (auto& p : extraBraziers) AddProp(PropType::Brazier, p[0], p[1], false);
+    int extraBanners[][2] = { {14,8},{14,24},{22,16},{26,8},{26,24} };
+    for (auto& p : extraBanners) AddProp(PropType::BannerPole, p[0], p[1], false);
+    int extraRubble[][2] = { {11,9},{17,14},{20,20},{24,26},{34,8},{36,23} };
+    for (auto& p : extraRubble) AddProp(PropType::RubblePile, p[0], p[1], false);
+
     cameraFocus = grid.CellCenter(21, 16);
 }
 
@@ -710,120 +717,209 @@ void Game::BuildWave(int waveNumber) {
     int laneCount = (int)lanes.size();
     if (laneCount <= 0) laneCount = 1;
 
+    auto countTowerType = [&](TowerType type) {
+        int count = 0;
+        for (const Tower& tower : towers) {
+            if (tower.type == type) count++;
+        }
+        return count;
+        };
+
+    auto laneDefenseScore = [&](int laneIndex) {
+        if (laneIndex < 0 || laneIndex >= (int)lanes.size()) return 0.0f;
+        float score = 0.0f;
+        for (const Tower& tower : towers) {
+            float bestDist = 99999.0f;
+            for (const GridCoord& step : lanes[laneIndex]) {
+                Vector3 p = grid.CellCenter(step.x, step.y);
+                float dist = DistanceXZ(p, tower.pos);
+                if (dist < bestDist) bestDist = dist;
+            }
+
+            float laneWeight = 0.0f;
+            if (bestDist <= tower.range + 1.0f) {
+                laneWeight = 12.0f + (float)tower.level * 6.0f;
+                if (tower.type == TowerType::WatchbowNest) laneWeight += 6.0f;
+                else if (tower.type == TowerType::CenserShrine) laneWeight += 4.0f;
+                else if (tower.type == TowerType::ReliquarySpire) laneWeight += 7.0f;
+                else laneWeight += 5.0f;
+                laneWeight += tower.range * 1.6f;
+            }
+            else if (bestDist <= tower.range + grid.cellSize * 1.8f) {
+                laneWeight = 4.0f + (float)tower.level * 2.5f;
+            }
+            score += laneWeight;
+        }
+
+        for (const BastionSite& bastion : bastions) {
+            if (bastion.level <= 0) continue;
+            if (bastion.laneIndex == laneIndex) score += 18.0f + bastion.level * 8.0f;
+        }
+
+        for (const WaystoneSite& stone : waystones) {
+            if (!stone.consecrated) continue;
+            for (const GridCoord& step : lanes[laneIndex]) {
+                if (std::abs(step.x - stone.cell.x) + std::abs(step.y - stone.cell.y) <= 4) {
+                    score += 10.0f;
+                    break;
+                }
+            }
+        }
+
+        return score;
+        };
+
+    int weakestLane = 0;
+    float weakestScore = 100000.0f;
+    for (int laneIndex = 0; laneIndex < laneCount; ++laneIndex) {
+        float score = laneDefenseScore(laneIndex);
+        if (score < weakestScore) {
+            weakestScore = score;
+            weakestLane = laneIndex;
+        }
+    }
+
+    int watchbows = countTowerType(TowerType::WatchbowNest);
+    int censers = countTowerType(TowerType::CenserShrine);
+    int spires = countTowerType(TowerType::ReliquarySpire);
+    int barricades = countTowerType(TowerType::PilgrimBarricade);
+
+    int dominantStyle = 0;
+    int dominantCount = watchbows;
+    if (censers > dominantCount) { dominantCount = censers; dominantStyle = 1; }
+    if (spires > dominantCount) { dominantCount = spires; dominantStyle = 2; }
+    if (barricades > dominantCount) { dominantCount = barricades; dominantStyle = 3; }
+
     int count = 16 + (waveNumber - 1) * 4;
     bool bossWave = (waveNumber % 5 == 0);
-    omenLane = -1;
+    omenLane = (waveNumber <= 1) ? -1 : weakestLane;
     waveOmen = "THREE ROADS BURN";
 
+    bool houndPressure = false;
+    bool heraldPressure = false;
+    bool brutePressure = false;
+    bool knightPressure = false;
+
     if (bossWave) {
-        omenLane = laneCount > 1 ? 1 : 0;
-        waveOmen = (waveNumber >= 10)
-            ? "DOUBLE BREAKER PROCESSION"
-            : "BREAKER PROCESSION";
+        omenLane = weakestLane;
+        waveOmen = (waveNumber >= 10) ? "ADAPTIVE DOUBLE BREAKER MARCH" : "ADAPTIVE BREAKER MARCH";
+        brutePressure = true;
+        heraldPressure = true;
+    }
+    else if (dominantCount <= 0) {
+        int pattern = waveNumber % 4;
+        if (pattern == 1) waveOmen = "BROKEN COLUMN ADVANCE";
+        else if (pattern == 2) { omenLane = 0; waveOmen = "NORTH ROAD HOUND HUNT"; houndPressure = true; }
+        else if (pattern == 3) { omenLane = laneCount > 1 ? 1 : 0; waveOmen = "MIDDLE ROAD KNIGHT LANCE"; knightPressure = true; }
+        else { omenLane = laneCount > 2 ? 2 : laneCount - 1; waveOmen = "SOUTH ROAD FUNERAL CHANT"; heraldPressure = true; }
+    }
+    else if (dominantStyle == 0) {
+        omenLane = weakestLane;
+        waveOmen = "ADAPTIVE HOUND HUNT";
+        houndPressure = true;
+    }
+    else if (dominantStyle == 1) {
+        omenLane = weakestLane;
+        waveOmen = "ADAPTIVE BRUTE POUND";
+        brutePressure = true;
+    }
+    else if (dominantStyle == 2) {
+        omenLane = weakestLane;
+        waveOmen = "ADAPTIVE SWARM LUNGE";
+        houndPressure = true;
+        knightPressure = true;
     }
     else {
-        int pattern = waveNumber % 4;
-        if (pattern == 1) {
-            waveOmen = "BROKEN COLUMN ADVANCE";
-        }
-        else if (pattern == 2) {
-            omenLane = 0;
-            waveOmen = "NORTH ROAD HOUND HUNT";
-        }
-        else if (pattern == 3) {
-            omenLane = laneCount > 1 ? 1 : 0;
-            waveOmen = "MIDDLE ROAD KNIGHT LANCE";
-        }
-        else if (pattern == 0) {
-            omenLane = laneCount > 2 ? 2 : laneCount - 1;
-            waveOmen = "SOUTH ROAD FUNERAL CHANT";
-        }
+        omenLane = weakestLane;
+        waveOmen = "ADAPTIVE HERALD SCREEN";
+        heraldPressure = true;
+        knightPressure = true;
     }
 
     for (int i = 0; i < count; ++i) {
         SpawnEntry entry{};
-        entry.spawnTime = 0.54f * i;
-        entry.laneIndex = (omenLane >= 0 && (i % 3 != 2)) ? omenLane : (i % laneCount);
+        entry.spawnTime = 0.52f * i;
+        bool focusLane = (omenLane >= 0) && ((i % 3) != 2 || bossWave);
+        entry.laneIndex = focusLane ? omenLane : ((i + waveNumber + (houndPressure ? 1 : 0)) % laneCount);
         entry.type = EnemyType::AshRaider;
 
-        if (omenLane >= 0 && entry.laneIndex == omenLane) {
-            entry.spawnTime -= 0.08f * (float)(1 + (i % 2));
+        if (focusLane) {
+            entry.spawnTime -= 0.07f * (float)(1 + (i % 2));
+            if (entry.spawnTime < 0.0f) entry.spawnTime = 0.0f;
         }
-        if (entry.spawnTime < 0.0f) entry.spawnTime = 0.0f;
 
-        if (waveNumber >= 2 && ((i % 4) == 3 || (omenLane == 2 && (i % 3) == 0))) {
+        int roll = (i * 3 + waveNumber + entry.laneIndex * 5) % 12;
+        if (waveNumber >= 2 && (roll == 3 || roll == 8 || (brutePressure && roll == 1))) {
             entry.type = EnemyType::GraveBrute;
             entry.spawnTime += 0.08f;
         }
-        if (waveNumber >= 3 && ((i % 5) == 2 || (omenLane == 1 && (i % 3) == 1))) {
+        if (waveNumber >= 3 && (roll == 5 || (knightPressure && (roll == 0 || roll == 10)))) {
             entry.type = EnemyType::BannerKnight;
         }
-        if (waveNumber >= 4 && omenLane == 0 && ((i % 3) == 1 || (i % 5) == 4)) {
+        if (waveNumber >= 4 && (houndPressure && (roll == 2 || roll == 7 || (focusLane && (i % 4) == 1)))) {
             entry.type = EnemyType::AshHound;
             entry.spawnTime -= 0.10f;
             if (entry.spawnTime < 0.0f) entry.spawnTime = 0.0f;
         }
-        if (waveNumber >= 5 && ((omenLane == 1 && (i % 6) == 0) || (omenLane == 2 && (i % 5) == 1))) {
+        if (waveNumber >= 5 && (heraldPressure && (roll == 4 || (focusLane && (i % 5) == 0)))) {
             entry.type = EnemyType::DirgeHerald;
             entry.spawnTime += 0.14f;
         }
-        if (waveNumber >= 7 && omenLane < 0 && (i % 7) == 0) {
+        if (waveNumber >= 7 && !houndPressure && entry.type == EnemyType::AshRaider && (i % 7) == 0) {
             entry.type = EnemyType::AshHound;
         }
-        if (waveNumber >= 8 && omenLane == 1 && entry.type == EnemyType::AshRaider && (i % 4) == 0) {
-            entry.type = EnemyType::BannerKnight;
-        }
-        if (waveNumber >= 9 && omenLane == 2 && entry.type == EnemyType::GraveBrute && (i % 6) == 2) {
+        if (waveNumber >= 8 && !heraldPressure && entry.type == EnemyType::AshRaider && (i % 6) == 1) {
             entry.type = EnemyType::DirgeHerald;
+            entry.spawnTime += 0.08f;
+        }
+        if (waveNumber >= 9 && brutePressure && entry.type == EnemyType::BannerKnight && (i % 4) == 0) {
+            entry.type = EnemyType::GraveBrute;
+            entry.spawnTime += 0.10f;
         }
 
         entry.elite = waveNumber >= 4 && ((i + waveNumber + entry.laneIndex) % 7 == 0);
+        if (focusLane && waveNumber >= 6 && (i % 5) == 0) entry.elite = true;
         if (entry.type == EnemyType::DirgeHerald && waveNumber >= 8) entry.elite = true;
         if (entry.type == EnemyType::AshHound && waveNumber >= 6 && (i % 4) == 0) entry.elite = true;
-        if (omenLane >= 0 && entry.laneIndex == omenLane && waveNumber >= 6 && (i % 5) == 0) {
-            entry.elite = true;
-        }
-        if (bossWave && i >= count - 5) {
-            entry.elite = true;
-        }
+        if (bossWave && i >= count - 5) entry.elite = true;
 
         wave.spawns.push_back(entry);
     }
 
     if (bossWave) {
         SpawnEntry escortA{};
-        escortA.spawnTime = 0.54f * count + 0.20f;
-        escortA.laneIndex = 0;
+        escortA.spawnTime = 0.52f * count + 0.20f;
+        escortA.laneIndex = weakestLane;
         escortA.type = EnemyType::AshHound;
         escortA.elite = true;
         wave.spawns.push_back(escortA);
 
         SpawnEntry escortB{};
-        escortB.spawnTime = 0.54f * count + 0.55f;
-        escortB.laneIndex = laneCount > 1 ? 1 : 0;
+        escortB.spawnTime = 0.52f * count + 0.55f;
+        escortB.laneIndex = laneCount > 1 ? ((weakestLane + 1) % laneCount) : 0;
         escortB.type = EnemyType::BannerKnight;
         escortB.elite = true;
         wave.spawns.push_back(escortB);
 
         SpawnEntry escortC{};
-        escortC.spawnTime = 0.54f * count + 0.90f;
-        escortC.laneIndex = laneCount > 1 ? 1 : 0;
+        escortC.spawnTime = 0.52f * count + 0.90f;
+        escortC.laneIndex = weakestLane;
         escortC.type = EnemyType::DirgeHerald;
         escortC.elite = true;
         wave.spawns.push_back(escortC);
 
         if (laneCount > 2) {
             SpawnEntry escortD{};
-            escortD.spawnTime = 0.54f * count + 1.15f;
-            escortD.laneIndex = 2;
+            escortD.spawnTime = 0.52f * count + 1.15f;
+            escortD.laneIndex = (weakestLane + 2) % laneCount;
             escortD.type = EnemyType::GraveBrute;
             escortD.elite = true;
             wave.spawns.push_back(escortD);
         }
 
         SpawnEntry bossA{};
-        bossA.spawnTime = 0.54f * count + 1.55f;
-        bossA.laneIndex = laneCount > 1 ? 1 : 0;
+        bossA.spawnTime = 0.52f * count + 1.55f;
+        bossA.laneIndex = weakestLane;
         bossA.type = EnemyType::ProcessionBreaker;
         bossA.elite = (waveNumber >= 15);
         wave.spawns.push_back(bossA);
@@ -831,7 +927,7 @@ void Game::BuildWave(int waveNumber) {
         if (waveNumber >= 10 && laneCount >= 3) {
             SpawnEntry bossB{};
             bossB.spawnTime = bossA.spawnTime + 2.2f;
-            bossB.laneIndex = 2;
+            bossB.laneIndex = (weakestLane + 1) % laneCount;
             bossB.type = EnemyType::ProcessionBreaker;
             bossB.elite = (waveNumber >= 15);
             wave.spawns.push_back(bossB);
@@ -1022,12 +1118,23 @@ void Game::SpawnEnemy(EnemyType type, int laneIndex, bool elite) {
     }
 
     if (omenLane >= 0 && laneIndex == omenLane) {
-        enemy.speed *= 1.04f;
+        enemy.speed *= 1.05f;
     }
 
     Vector3 start = grid.CellCenter(lanes[laneIndex][0].x, lanes[laneIndex][0].y);
-    enemy.pos.x = start.x - 1.2f;
-    enemy.pos.z = start.z;
+    Vector3 next = start;
+    if (lanes[laneIndex].size() > 1) {
+        next = grid.CellCenter(lanes[laneIndex][1].x, lanes[laneIndex][1].y);
+    }
+    Vector3 forward = NormalizeXZ(Vec3Sub(next, start));
+    Vector3 side = { -forward.z, 0.0f, forward.x };
+    int formation = (wave.nextSpawnIndex % 5) - 2;
+    float lateral = 0.18f * (float)formation;
+    if (type == EnemyType::AshHound) lateral *= 1.5f;
+    if (type == EnemyType::ProcessionBreaker) lateral *= 0.6f;
+
+    enemy.pos.x = start.x - 1.2f + side.x * lateral;
+    enemy.pos.z = start.z + side.z * lateral;
     enemies.push_back(enemy);
 }
 
@@ -2308,17 +2415,52 @@ void Game::DrawWorld() const {
 }
 
 void Game::DrawTiles() const {
+    auto isRoadAdjacent = [&](int x, int y) {
+        for (int oy = -1; oy <= 1; ++oy) {
+            for (int ox = -1; ox <= 1; ++ox) {
+                if (ox == 0 && oy == 0) continue;
+                int nx = x + ox;
+                int ny = y + oy;
+                if (!grid.InBounds(nx, ny)) continue;
+                TileKind kind = grid.At(nx, ny).kind;
+                if (kind == TileKind::Road || kind == TileKind::Spawn) return true;
+            }
+        }
+        return false;
+        };
+
     for (int y = 0; y < grid.height; ++y) {
         for (int x = 0; x < grid.width; ++x) {
             const GridTile& tile = grid.At(x, y);
             Vector3 center = grid.CellCenter(x, y);
             center.y = tile.height * 0.5f - 0.05f;
 
-            Color tileColor = { 84, 96, 78, 255 };
-            Color topColor = { 94, 110, 90, 255 };
+            bool northSector = y <= 9;
+            bool southSector = y >= 24;
+            bool fortressSector = (x >= 28 && y >= 10 && y <= 22);
+            bool roadAdjacent = isRoadAdjacent(x, y);
+            int hash = (x * 73 + y * 91 + x * y * 17) & 255;
+
+            Color tileColor = northSector ? Color{ 78, 92, 82, 255 } : (southSector ? Color{ 82, 90, 76, 255 } : Color{ 84, 96, 78, 255 });
+            Color topColor = northSector ? Color{ 96, 108, 96, 255 } : (southSector ? Color{ 100, 108, 90, 255 } : Color{ 94, 110, 90, 255 });
+            if (fortressSector) {
+                tileColor = { 86, 92, 102, 255 };
+                topColor = { 118, 124, 136, 255 };
+            }
+            if (roadAdjacent && tile.kind == TileKind::Buildable) {
+                topColor = Tint(topColor, 0.94f);
+            }
             if (tile.kind == TileKind::Road) {
-                tileColor = { 86, 72, 54, 255 };
-                topColor = { 132, 116, 86, 255 };
+                tileColor = { 82, 70, 52, 255 };
+                topColor = { 136, 120, 88, 255 };
+                if (state == PlayState::BattlePhase && omenLane >= 0) {
+                    for (const GridCoord& step : lanes[omenLane]) {
+                        if (step.x == x && step.y == y) {
+                            topColor = { 168, 110, 90, 255 };
+                            break;
+                        }
+                    }
+                }
             }
             else if (tile.kind == TileKind::Spawn) {
                 tileColor = { 82, 44, 44, 255 };
@@ -2329,8 +2471,8 @@ void Game::DrawTiles() const {
                 topColor = { 126, 132, 144, 255 };
             }
             else if (tile.kind == TileKind::Blocked) {
-                tileColor = { 54, 58, 60, 255 };
-                topColor = { 86, 90, 94, 255 };
+                tileColor = northSector ? Color{ 58, 62, 66, 255 } : Color{ 54, 58, 60, 255 };
+                topColor = northSector ? Color{ 90, 94, 98, 255 } : Color{ 86, 90, 94, 255 };
             }
 
             if (hoveredValid && hoveredCell.x == x && hoveredCell.y == y) {
@@ -2364,6 +2506,38 @@ void Game::DrawTiles() const {
                 DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, grid.cellSize * 0.46f, 0.04f, grid.cellSize * 0.78f, { 154, 138, 104, 255 });
                 DrawCube({ center.x - grid.cellSize * 0.34f, center.y + tile.height * 0.5f, center.z }, 0.10f, 0.10f, grid.cellSize * 0.72f, { 70, 60, 46, 255 });
                 DrawCube({ center.x + grid.cellSize * 0.34f, center.y + tile.height * 0.5f, center.z }, 0.10f, 0.10f, grid.cellSize * 0.72f, { 70, 60, 46, 255 });
+                if (((x + y) % 5) == 0) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.05f, center.z }, grid.cellSize * 0.18f, 0.05f, grid.cellSize * 0.16f, { 190, 174, 128, 255 });
+                }
+            }
+            else if (tile.kind == TileKind::Fortress) {
+                if ((x + y) % 2 == 0) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.34f, 0.04f, grid.cellSize * 0.34f, { 156, 162, 176, 255 });
+                }
+                else {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.70f, 0.03f, grid.cellSize * 0.08f, { 146, 152, 166, 255 });
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.03f, center.z }, grid.cellSize * 0.08f, 0.03f, grid.cellSize * 0.70f, { 146, 152, 166, 255 });
+                }
+            }
+            else if (tile.kind == TileKind::Buildable && !tile.occupied) {
+                if (hash % 17 == 0) {
+                    DrawCube({ center.x - 0.24f, center.y + tile.height * 0.5f + 0.04f, center.z - 0.16f }, 0.24f, 0.08f, 0.18f, { 104, 98, 90, 255 });
+                    DrawCube({ center.x + 0.18f, center.y + tile.height * 0.5f + 0.03f, center.z + 0.12f }, 0.18f, 0.06f, 0.16f, { 86, 82, 78, 255 });
+                }
+                else if (hash % 19 == 3) {
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, 0.72f, 0.02f, 0.20f, { 60, 64, 58, 255 });
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.02f, center.z }, 0.18f, 0.02f, 0.72f, { 60, 64, 58, 255 });
+                }
+                else if (hash % 23 == 5) {
+                    DrawCube({ center.x - 0.20f, center.y + tile.height * 0.5f + 0.06f, center.z + 0.08f }, 0.12f, 0.12f, 0.12f, { 96, 90, 78, 255 });
+                    DrawCube({ center.x + 0.06f, center.y + tile.height * 0.5f + 0.05f, center.z - 0.10f }, 0.10f, 0.10f, 0.10f, { 104, 96, 84, 255 });
+                    DrawCube({ center.x + 0.22f, center.y + tile.height * 0.5f + 0.04f, center.z + 0.12f }, 0.08f, 0.08f, 0.08f, { 84, 80, 72, 255 });
+                }
+                else if (hash % 29 == 11 && !roadAdjacent) {
+                    DrawCube({ center.x - 0.24f, center.y + tile.height * 0.5f + 0.06f, center.z }, 0.06f, 0.12f, 0.06f, { 92, 86, 70, 255 });
+                    DrawCube({ center.x, center.y + tile.height * 0.5f + 0.08f, center.z + 0.12f }, 0.06f, 0.16f, 0.06f, { 92, 86, 70, 255 });
+                    DrawCube({ center.x + 0.22f, center.y + tile.height * 0.5f + 0.05f, center.z - 0.10f }, 0.06f, 0.10f, 0.06f, { 92, 86, 70, 255 });
+                }
             }
         }
     }
@@ -2401,10 +2575,43 @@ void Game::DrawEnvironment() const {
         }
         };
 
+    auto drawShrine = [&](int cellX, int cellY, bool lit) {
+        if (!grid.InBounds(cellX, cellY)) return;
+        Vector3 c = grid.CellCenter(cellX, cellY);
+        float h = grid.At(cellX, cellY).height;
+        DrawCube({ c.x, h + 0.26f, c.z }, 1.2f, 0.44f, 1.2f, { 74, 78, 86, 255 });
+        DrawCube({ c.x, h + 1.04f, c.z }, 0.42f, 1.12f, 0.42f, { 126, 130, 140, 255 });
+        DrawCube({ c.x, h + 1.72f, c.z }, 0.74f, 0.22f, 0.74f, { 152, 156, 166, 255 });
+        if (lit) {
+            float pulse = 0.10f + 0.05f * std::sin(worldTime * 3.2f + (float)(cellX + cellY));
+            DrawSphere({ c.x, h + 2.10f + pulse, c.z }, 0.18f + pulse * 0.25f, { 250, 206, 132, 255 });
+        }
+        };
+
+    auto drawLowWall = [&](int cellX, int cellY, float sizeX, float sizeZ, Color color) {
+        if (!grid.InBounds(cellX, cellY)) return;
+        Vector3 c = grid.CellCenter(cellX, cellY);
+        float h = grid.At(cellX, cellY).height;
+        DrawCube({ c.x, h + 0.40f, c.z }, sizeX, 0.80f, sizeZ, color);
+        DrawCubeWires({ c.x, h + 0.40f, c.z }, sizeX, 0.80f, sizeZ, Tint(color, 0.75f));
+        };
+
     drawRoadArch(0, 10, 5, { 124, 42, 42, 255 });
     drawRoadArch(1, 10, 16, { 124, 42, 42, 255 });
     drawRoadArch(2, 10, 28, { 124, 42, 42, 255 });
     drawRoadArch(1, 28, 16, { 176, 134, 72, 255 });
+
+    int shrineCells[][3] = {
+        {5, 7, 1}, {7, 25, 0}, {15, 30, 0}, {19, 4, 1}, {33, 7, 1}, {39, 27, 0}
+    };
+    for (auto& data : shrineCells) drawShrine(data[0], data[1], data[2] != 0);
+
+    drawLowWall(12, 11, 2.2f, 0.34f, { 92, 96, 104, 255 });
+    drawLowWall(18, 13, 2.6f, 0.34f, { 92, 96, 104, 255 });
+    drawLowWall(14, 21, 0.34f, 2.2f, { 96, 98, 104, 255 });
+    drawLowWall(21, 24, 2.0f, 0.34f, { 98, 90, 86, 255 });
+    drawLowWall(24, 22, 0.34f, 2.0f, { 98, 90, 86, 255 });
+    drawLowWall(8, 18, 1.8f, 0.34f, { 96, 92, 88, 255 });
 
     for (int i = 0; i < 34; ++i) {
         float orbit = worldTime * (0.26f + 0.02f * (float)i) + (float)i;
@@ -2416,6 +2623,11 @@ void Game::DrawEnvironment() const {
         Color moteColor = (stormFlash > 0.10f) ? Color{ 150, 166, 198, 180 } : Color{ 74, 82, 94, 160 };
         DrawSphere(mote, 0.08f + 0.02f * std::sin(orbit * 2.2f), moteColor);
     }
+
+    Vector3 crowA = { grid.origin.x + 24.0f + 8.0f * std::sin(worldTime * 0.9f), 7.0f + 0.6f * std::sin(worldTime * 2.0f), grid.origin.z + 10.0f + 5.0f * std::cos(worldTime * 0.9f) };
+    Vector3 crowB = { grid.origin.x + 66.0f + 7.0f * std::cos(worldTime * 0.7f), 6.4f + 0.5f * std::sin(worldTime * 1.7f + 1.5f), grid.origin.z + 58.0f + 4.0f * std::sin(worldTime * 0.7f) };
+    DrawSphere(crowA, 0.12f, { 18, 20, 24, 255 });
+    DrawSphere(crowB, 0.12f, { 18, 20, 24, 255 });
 
     if (stormFlash > 0.04f) {
         float lx[] = { grid.origin.x + 8.0f, grid.origin.x + 24.0f, grid.origin.x + 52.0f, grid.origin.x + 76.0f };
@@ -2482,6 +2694,15 @@ void Game::DrawEnvironment() const {
             float sway = 0.18f * std::sin(worldTime * 2.5f + (float)prop.cell.x);
             DrawCube({ center.x + 0.52f, center.y + 2.58f, center.z + sway }, 0.92f, 1.10f, 0.10f, { 124, 42, 42, 255 });
         }
+    }
+
+    int emberPools[][2] = { {8, 7}, {15, 27}, {22, 12}, {25, 21}, {36, 24} };
+    for (auto& p : emberPools) {
+        if (!grid.InBounds(p[0], p[1])) continue;
+        Vector3 c = grid.CellCenter(p[0], p[1]);
+        float h = grid.At(p[0], p[1]).height;
+        DrawCylinder({ c.x, h + 0.02f, c.z }, 0.72f, 0.72f, 0.04f, 10, { 52, 44, 36, 255 });
+        DrawSphere({ c.x, h + 0.08f, c.z }, 0.16f + 0.04f * std::sin(worldTime * 2.8f + (float)p[0]), { 168, 94, 70, 255 });
     }
 }
 
@@ -2757,7 +2978,7 @@ void Game::DrawUi() const {
     DrawRectangle(22, 18, 1120, 214, Fade(BLACK, 0.68f));
     DrawRectangleLines(22, 18, 1120, 214, { 188, 156, 96, 255 });
     DrawText("THE LAST PROCESSION", 40, 30, 34, { 236, 228, 210, 255 });
-    DrawText("BATCH 14 // ROYAL DIRECTIVES AND FLAWLESS HONORS", 40, 68, 20, { 196, 172, 118, 255 });
+    DrawText("BATCH 15 // LIVING BATTLEFIELD AND ADAPTIVE PROCESSION", 40, 68, 20, { 196, 172, 118, 255 });
     DrawText(TextFormat("WAVE %d", wave.number), 40, 100, 24, { 188, 156, 96, 255 });
     DrawText(TextFormat("OMEN // %s", waveOmen.c_str()), 160, 100, 24, omenLane >= 0 ? Color{ 226, 136, 116, 255 } : Color{ 198, 208, 214, 255 });
     DrawText(TextFormat("GOLD %d   IRON %d   EMBER %d", gold, iron, ember), 40, 132, 22, { 210, 214, 204, 255 });

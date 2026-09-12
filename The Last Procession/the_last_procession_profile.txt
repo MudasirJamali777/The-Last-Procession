@@ -1,12 +1,12 @@
 TLP_PROFILE_V1
-ash 10
-highestWave 2
+ash 1251
+highestWave 13
 runsStarted 1
-waystones 0
-breakers 0
-directives 0
-flawless 0
-rampart 0
+waystones 2
+breakers 3
+directives 13
+flawless 13
+rampart 1
 arsenal 0
 emberkeep 0
 hymn 0
